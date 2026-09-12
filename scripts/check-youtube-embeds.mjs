@@ -1,0 +1,12 @@
+import { chromium } from 'playwright';
+const base=process.env.TEST_BASE || 'https://3000-ifl5d0l07qljoqh1d2bk9.e2b.app';
+const browser=await chromium.launch({headless:true,args:['--no-sandbox','--autoplay-policy=no-user-gesture-required']});
+const page=await browser.newPage({viewport:{width:1200,height:900}});
+const cases=[['tame','2SUwOgmvzK4','https://www.youtube.com'],['private','2SUwOgmvzK4','https://www.youtube-nocookie.com'],['radiohead','XFkzRNyygfk','https://www.youtube.com'],['demo','M7lc1UVf-VE','https://www.youtube-nocookie.com']];
+const html=`<!doctype html><html><head><meta name="referrer" content="strict-origin-when-cross-origin"></head><body>${cases.map(([name])=>`<div id="${name}"></div>`).join('')}<script>window.results={};window.players={};window.onYouTubeIframeAPIReady=()=>{const cases=${JSON.stringify(cases)};for(const [name,id,host] of cases){window.results[name]={events:[]};const player=new YT.Player(name,{videoId:id,host,width:480,height:270,playerVars:{origin:location.origin,autoplay:1,playsinline:1,controls:1},events:{onReady:e=>{window.players[name]=e.target;e.target.playVideo();window.results[name].ready=true},onStateChange:e=>window.results[name].events.push(e.data),onError:e=>window.results[name].error=e.data}})}};</script><script src="https://www.youtube.com/iframe_api"></script></body></html>`;
+await page.route('**/__player_test',route=>route.fulfill({status:200,contentType:'text/html',body:html}));
+await page.goto(base+'/__player_test',{waitUntil:'domcontentloaded'});
+await page.waitForTimeout(16000);
+console.log(JSON.stringify(await page.evaluate(()=>{for(const [k,p] of Object.entries(window.players)){window.results[k].time=p.getCurrentTime();window.results[k].duration=p.getDuration();}return window.results}),null,2));
+console.log('Frame messages:',await Promise.all(page.frames().filter(f=>/youtube.*embed/.test(f.url())).map(async f=>({url:f.url().split('?')[0],text:(await f.locator('body').innerText()).slice(0,600)}))));
+await browser.close();

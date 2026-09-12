@@ -1,0 +1,76 @@
+{
+  "name": "rewind-music-player",
+  "version": "1.0.0",
+  "description": "Rewind Music Player Desktop Application",
+  "author": "Rewind",
+  "private": true,
+  "main": "electron/main.cjs",
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "build:app": "next build && node scripts/prepare-standalone.cjs",
+    "start": "next start",
+    "lint": "eslint .",
+    "typecheck": "tsc --noEmit",
+    "electron": "electron .",
+    "electron:build": "npm run build:app && electron-builder --win portable",
+    "dist": "npm run build:app && electron-builder --win portable"
+  },
+  "dependencies": {
+    "@distube/ytdl-core": "^4.16.12",
+    "better-sqlite3": "^13.0.3",
+    "dotenv": "17.3.1",
+    "drizzle-orm": "0.45.2",
+    "lucide-react": "^1.44.0",
+    "next": "16.2.6",
+    "playwright": "^1.63.0",
+    "react": "19.2.6",
+    "react-dom": "19.2.6",
+    "react-youtube": "^10.1.0",
+    "youtubei.js": "^18.0.0"
+  },
+  "devDependencies": {
+    "@tailwindcss/postcss": "4.1.17",
+    "@types/better-sqlite3": "^9.6.0",
+    "@types/node": "22.19.15",
+    "@types/react": "19.2.14",
+    "@types/react-dom": "19.2.3",
+    "drizzle-kit": "0.31.10",
+    "electron": "^44.3.0",
+    "electron-builder": "^26.15.3",
+    "eslint": "9.39.4",
+    "eslint-config-next": "16.2.6",
+    "postcss": "8.5.8",
+    "tailwindcss": "4.1.17",
+    "typescript": "5.9.3"
+  },
+  "build": {
+    "appId": "com.rewind.musicplayer",
+    "productName": "Rewind Music Player",
+    "directories": {
+      "output": "dist-electron"
+    },
+    "asar": true,
+    "asarUnpack": [
+      ".next/standalone/**/*"
+    ],
+    "files": [
+      "electron/**/*",
+      ".next/standalone/**/*",
+      "package.json"
+    ],
+    "win": {
+      "target": [
+        "nsis",
+        "portable"
+      ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": "always",
+      "createStartMenuShortcut": true,
+      "shortcutName": "Rewind Music Player"
+    }
+  }
+}
