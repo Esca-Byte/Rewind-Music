@@ -1,104 +1,56 @@
-# Rewind Music Player 🎵
+<div align="center">
+  <img src="public/rewindlogo.png" alt="Rewind Music Player Logo" width="110" height="110" />
 
-A lightweight, high-performance, retro-futuristic desktop music player built with **Tauri v2**, **Next.js 16**, **React 19**, and **Rust**.
+  # Rewind Music Player
 
-Rewind provides a distraction-free audio experience with instant seeking, local storage for favorites and history, offline song downloads, and a bundled `yt-dlp` native sidecar.
+  **A modern, distraction-free desktop music player streaming official YouTube full recordings with high-fidelity sound, custom playlists, professional equalizer, and native offline downloads.**
 
----
-
-## ⚡ Highlights (Why Tauri v2?)
-
-- **🚀 Ultra-Lightweight Binary**: Setup installer is only **~21 MB** (down from >180 MB in Electron), and memory consumption is drastically reduced.
-- **⚡ Fast Native Startup**: Native Windows WebView2 runtime powered by Rust core backend.
-- **🎧 Pure Audio Playback**: Zero video decoding overhead. Streams direct audio feeds using native HTML5 `<audio>`.
-- **📥 Local Offline Downloads**: Download tracks directly to `%USERPROFILE%\Music\Rewind Downloads` using the bundled `yt-dlp` sidecar without requiring external Python installations.
-- **🔍 Native YouTube Search**: Embedded sidecar querying for instant discovery.
-- **💿 220+ Preloaded Tracks**: Curated playlists covering **K-Pop**, **Indie India**, and **English Hits**.
-- **📦 Clean NSIS Installer**: Creates Windows Desktop and Start Menu shortcuts automatically.
+  <p>
+    <a href="https://github.com/Esca-Byte/Rewind-Music/releases"><img src="https://img.shields.io/badge/Release-v1.0.1-rose?style=flat-square&color=e11d48" alt="Version 1.0.1" /></a>
+    <a href="https://v2.tauri.app/"><img src="https://img.shields.io/badge/Desktop-Tauri_v2-blue?style=flat-square&logo=tauri&logoColor=white" alt="Tauri v2" /></a>
+    <a href="https://nextjs.org/"><img src="https://img.shields.io/badge/Frontend-Next.js_16-black?style=flat-square&logo=next.js" alt="Next.js 16" /></a>
+    <a href="https://www.rust-lang.org/"><img src="https://img.shields.io/badge/Backend-Rust-orange?style=flat-square&logo=rust" alt="Rust" /></a>
+    <a href="LICENSE"><img src="https://img.shields.io/badge/License-GPL--3.0-emerald?style=flat-square&color=10b981" alt="GPL-3.0" /></a>
+  </p>
+</div>
 
 ---
 
-## 🛠️ Tech Stack
+## ✨ Features
 
-- **Desktop Framework**: [Tauri v2](https://v2.tauri.app/)
-- **Core Native Backend**: Rust 2021 + Tauri Plugins (`shell`, `fs`, `dialog`, `process`)
-- **Frontend Framework**: [Next.js 16](https://nextjs.org/) (Static HTML/CSS/JS export)
-- **UI Library**: [React 19](https://react.dev/) + [Lucide React](https://lucide.dev/)
-- **Styling**: Tailored CSS design tokens & retro-futuristic theme
-- **Sidecar Engine**: Bundled `yt-dlp` Windows MSVC binary
+- 🎧 **100% Full Recordings**: Pure audio streaming with instant playback and zero video overhead.
+- 📥 **True Offline Downloads**: Download songs locally with the bundled native sidecar—no external tools needed.
+- 🎚️ **Vintage Hi-Fi Equalizer**: 5-band studio analog equalizer (Sub-Bass, Punch, Vocals, Presence, Air) with curated presets.
+- 🎨 **5 Curated Color Themes**: Switch between *Midnight Vinyl*, *Cyberpunk Neon*, *Warm Analog*, *Nordic Forest*, and *Tokyo Sunset*.
+- 📋 **YouTube Playlist Import**: Paste any public YouTube playlist URL or ID to instantly import all songs.
+- ⚡ **Ultra Lightweight**: Built on Tauri v2 and Rust—fast startup and minimal memory usage.
 
 ---
 
-## 🚀 Getting Started
+## 🚀 Quick Start
 
 ### Prerequisites
-- [Node.js](https://nodejs.org/) (v18 or higher)
+- [Node.js](https://nodejs.org/) (v18+)
 - [Rust & Cargo](https://rustup.rs/) (v1.78+)
-- Microsoft C++ Build Tools (MSVC)
 
 ### Development
-
-1. Install dependencies:
-   ```bash
-   npm install
-   ```
-
-2. Run the Tauri v2 Desktop App in development mode:
-   ```bash
-   npm run tauri:dev
-   ```
-
-3. Or run only the frontend dev server:
-   ```bash
-   npm run dev
-   ```
-
----
-
-## 📦 Building the Windows Executable & Installer
-
-To build the production release binary and NSIS setup installer:
-
 ```bash
+# 1. Install dependencies
+npm install
+
+# 2. Run the desktop app in development
+npm run tauri:dev
+```
+
+### Production Build
+```bash
+# Build the optimized desktop binary & setup installer
 npm run tauri:build
 ```
-
-### Build Artifacts:
-- **Installer (.exe)**:
-  ```
-  src-tauri/target/release/bundle/nsis/Rewind Music Player_1.0.0_x64-setup.exe
-  ```
-- **Standalone Portable (.exe)**:
-  ```
-  src-tauri/target/release/Rewind Music Player Standalone.exe
-  ```
-
----
-
-## 📂 Project Structure
-
-```
-├── src-tauri/                 # Tauri v2 Rust project
-│   ├── binaries/              # Native sidecars (yt-dlp)
-│   ├── capabilities/          # Security permissions (shell, fs, dialog)
-│   ├── src/                   # Rust entry points (main.rs, lib.rs)
-│   ├── Cargo.toml             # Rust dependencies
-│   └── tauri.conf.json        # Tauri v2 configuration & window settings
-├── src/
-│   ├── app/                   # Next.js App Router (static export)
-│   ├── components/time/       # Player components, state hooks, and UI
-│   │   ├── time-machine.tsx   # Core music player UI & views
-│   │   ├── use-time-player.ts # Native HTML5 audio playback hook
-│   │   └── album-object.tsx   # Album art & vinyl rendering
-│   └── lib/
-│       ├── tauri-audio.ts     # Native Tauri sidecar audio & download bridge
-│       └── time/              # Playlists, track metadata, and era definitions
-├── out/                       # Next.js static export directory
-└── package.json
-```
+*Installer output will be located in: `src-tauri/target/release/bundle/nsis/`*
 
 ---
 
 ## 📜 License
 
-This project is open-source and licensed under the **GNU General Public License v3.0 (GPL-3.0)**. See the [LICENSE](LICENSE) file for the complete terms and conditions.
+This project is licensed under the **GNU General Public License v3.0 (GPL-3.0)**. See the [LICENSE](LICENSE) file for details.
