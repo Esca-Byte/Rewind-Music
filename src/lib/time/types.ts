@@ -8,7 +8,8 @@ export type TimeTrack = {
   genre: string;
   duration: number;
   cover: string;
-  source: "youtube";
+  source: "youtube" | "local";
+  filePath?: string;
 };
 
 export type ListeningMemory = {
@@ -30,16 +31,16 @@ export function clock(seconds: number) {
 export function isTimeTrack(input: unknown): input is TimeTrack {
   if (!input || typeof input !== "object") return false;
   const t = input as Partial<TimeTrack>;
-  if (t.source !== "youtube" || typeof t.videoId !== "string" || !/^[\w-]{11}$/.test(t.videoId)) return false;
+  if ((t.source !== "youtube" && t.source !== "local") || typeof t.videoId !== "string") return false;
   for (const key of ["id", "title", "artist", "album", "genre", "cover"] as const) {
     if (typeof t[key] !== "string" || t[key]!.length > (key === "cover" ? 2000 : 400)) return false;
   }
-  if (!t.id || !t.title || !t.artist || typeof t.duration !== "number" || !Number.isFinite(t.duration) || t.duration <= 60 || t.duration > 86400) return false;
+  if (!t.id || !t.title || !t.artist || typeof t.duration !== "number" || !Number.isFinite(t.duration) || t.duration < 0 || t.duration > 86400) return false;
   if (t.year !== null && (typeof t.year !== "number" || !Number.isInteger(t.year) || t.year < 1900 || t.year > 2100)) return false;
   const cover = t.cover!;
-  if (cover.startsWith("/time/")) return !cover.includes("..");
+  if (cover.startsWith("/time/") || cover === "") return !cover.includes("..");
   try {
     const url = new URL(cover);
-    return url.protocol === "https:" && ["i.ytimg.com", "i9.ytimg.com"].includes(url.hostname);
+    return ["https:", "http:"].includes(url.protocol);
   } catch { return false; }
 }

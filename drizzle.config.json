@@ -1,8 +1,0 @@
-{
-  "dialect": "sqlite",
-  "schema": "./src/db/schema.ts",
-  "dbCredentials": {
-    "url": "./data/music_player.db"
-  }
-}
-

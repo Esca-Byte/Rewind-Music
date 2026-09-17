@@ -2,6 +2,8 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { TimeTrack } from "@/lib/time/types";
+import { resolveAudioStreamUrl, isTauriEnvironment } from "@/lib/tauri-audio";
+import { convertFileSrc } from "@tauri-apps/api/core";
 
 export type PlayerStatus = "idle" | "loading" | "playing" | "paused" | "error";
 
@@ -52,26 +54,50 @@ export function useTimePlayer(initial: TimeTrack, onListen: (track: TimeTrack) =
     values.current.status = "loading";
 
     if (audio) {
-      const src = `/api/stream?videoId=${encodeURIComponent(nextTrack.videoId)}`;
-      if (audio.src !== src) {
-        audio.src = src;
-      }
-      if (resume > 0) {
-        audio.currentTime = resume;
-      }
-      audio.play().then(() => {
-        setStatus("playing");
-        values.current.status = "playing";
-        if (loggedTrackId.current !== nextTrack.id) {
-          loggedTrackId.current = nextTrack.id;
-          onListenRef.current(nextTrack);
+      const playSource = (src: string) => {
+        if (values.current.track.id !== nextTrack.id && values.current.track.videoId !== nextTrack.videoId) return;
+        if (audio.src !== src) {
+          audio.src = src;
         }
+        if (resume > 0) {
+          audio.currentTime = resume;
+        }
+        audio.play().then(() => {
+          setStatus("playing");
+          values.current.status = "playing";
+          if (loggedTrackId.current !== nextTrack.id) {
+            loggedTrackId.current = nextTrack.id;
+            onListenRef.current(nextTrack);
+          }
+        }).catch((err) => {
+          if (err.name !== "AbortError") {
+            console.warn("Audio play deferred/interrupted:", err);
+            setStatus("paused");
+            values.current.status = "paused";
+          }
+        });
+      };
+
+      // Direct local offline playback if filePath exists
+      if (nextTrack.filePath && isTauriEnvironment()) {
+        try {
+          const localSrc = convertFileSrc(nextTrack.filePath);
+          if (localSrc) {
+            playSource(localSrc);
+            return;
+          }
+        } catch (err) {
+          console.warn("Failed to convert local file source, falling back to YouTube:", err);
+        }
+      }
+
+      // Stream via YouTube
+      resolveAudioStreamUrl(nextTrack.videoId).then((src) => {
+        playSource(src);
       }).catch((err) => {
-        if (err.name !== "AbortError") {
-          console.warn("Audio play deferred/interrupted:", err);
-          setStatus("paused");
-          values.current.status = "paused";
-        }
+        console.error("Audio resolve error:", err);
+        setStatus("error");
+        setError("Could not extract audio stream.");
       });
     }
   }, []);
@@ -121,6 +147,48 @@ export function useTimePlayer(initial: TimeTrack, onListen: (track: TimeTrack) =
     index = (Math.max(0, index) + direction + list.length) % list.length;
     start(list[index]);
   }, [start]);
+
+  const playNext = useCallback((nextTrack: TimeTrack) => {
+    setQueue((prevQueue) => {
+      const currentTrack = values.current.track;
+      const currentIndex = prevQueue.findIndex((t) => t.videoId === currentTrack.videoId);
+      if (currentIndex === -1) {
+        const nextList = [currentTrack, nextTrack, ...prevQueue.filter((t) => t.videoId !== nextTrack.videoId)];
+        values.current.queue = nextList;
+        return nextList;
+      }
+      const newQueue = [...prevQueue];
+      newQueue.splice(currentIndex + 1, 0, nextTrack);
+      values.current.queue = newQueue;
+      return newQueue;
+    });
+  }, []);
+
+  const addToQueue = useCallback((nextTrack: TimeTrack) => {
+    setQueue((prevQueue) => {
+      const newQueue = [...prevQueue, nextTrack];
+      values.current.queue = newQueue;
+      return newQueue;
+    });
+  }, []);
+
+  const removeFromQueue = useCallback((indexToRemove: number) => {
+    setQueue((prevQueue) => {
+      if (indexToRemove < 0 || indexToRemove >= prevQueue.length) return prevQueue;
+      const newQueue = prevQueue.filter((_, idx) => idx !== indexToRemove);
+      values.current.queue = newQueue;
+      return newQueue;
+    });
+  }, []);
+
+  const clearQueue = useCallback(() => {
+    setQueue((prevQueue) => {
+      const currentTrack = values.current.track;
+      const newQueue = [currentTrack];
+      values.current.queue = newQueue;
+      return newQueue;
+    });
+  }, []);
 
   const seek = useCallback((seconds: number) => {
     const audio = audioRef.current;
@@ -215,6 +283,10 @@ export function useTimePlayer(initial: TimeTrack, onListen: (track: TimeTrack) =
     next: () => next(1),
     previous,
     seek,
+    playNext,
+    addToQueue,
+    removeFromQueue,
+    clearQueue,
     setVolume,
     setMuted,
     setShuffle,

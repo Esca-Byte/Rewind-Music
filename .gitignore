@@ -7,10 +7,14 @@ node_modules/
 .next/
 out/
 
-# Electron & Desktop Build Artifacts (Excludes large .exe binaries > 100MB for GitHub)
+# Tauri & Desktop Build Artifacts (Excludes large .exe binaries > 100MB for GitHub)
 dist-electron/
 dist/
 build/
+target/
+src-tauri/target/
+src-tauri/binaries/
+server-api-backup/
 *.exe
 *.blockmap
 *.zip
@@ -21,13 +25,17 @@ build/
 *.tsbuildinfo
 next-env.d.ts
 
-# Local Databases
-data/*.db
-data/*.db-wal
-data/*.db-shm
-data/*.sqlite
-data/*.sqlite-wal
-data/*.sqlite-shm
+# Local Databases & Test Artifacts
+data/
+*.db
+*.db-wal
+*.db-shm
+*.sqlite
+*.sqlite-wal
+*.sqlite-shm
+coverage/
+*.lcov
+.nyc_output/
 
 # Environment & Secrets
 .env

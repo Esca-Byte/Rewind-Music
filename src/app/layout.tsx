@@ -14,5 +14,16 @@ export const metadata: Metadata = {
 };
 
 export default function RootLayout({ children }: { children: ReactNode }) {
-  return <html lang="en" className={`${editorial.variable} ${ui.variable} ${code.variable}`}><body>{children}</body></html>;
+  return (
+    <html lang="en" className={`${editorial.variable} ${ui.variable} ${code.variable}`}>
+      <head>
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `document.addEventListener('contextmenu', function(e) { e.preventDefault(); });`,
+          }}
+        />
+      </head>
+      <body>{children}</body>
+    </html>
+  );
 }

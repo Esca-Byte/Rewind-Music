@@ -1,123 +1,99 @@
 # Rewind Music Player 🎵
 
-A modern, retro-futuristic desktop & web music player built with **Next.js 16**, **React 19**, and **Electron 44**. Stream complete audio recordings without video overhead, download tracks for offline listening, and enjoy a distraction-free native desktop experience.
+A lightweight, high-performance, retro-futuristic desktop music player built with **Tauri v2**, **Next.js 16**, **React 19**, and **Rust**.
+
+Rewind provides a distraction-free audio experience with instant seeking, local storage for favorites and history, offline song downloads, and a bundled `yt-dlp` native sidecar.
 
 ---
 
-## ✨ Features
+## ⚡ Highlights (Why Tauri v2?)
 
-- **🎧 Pure Audio Playback**: Eliminates video streaming in favor of native HTML5 audio. Fast loading, instant timeline seeking (HTTP 206 Partial Content), and low resource usage.
-- **📥 Local Music Downloads**: Download any song directly to your computer. On the desktop app, files save automatically to `%USERPROFILE%\Music\Rewind Downloads`.
-- **🖥️ Dedicated Desktop App**: Clean native window without browser bars or default Electron menus (`File`, `Edit`, etc.).
-- **💿 Curated Playlists**: Over 220 tracks across categories:
-  - **K-Pop 2026**
-  - **Indie India**
-  - **English Songs & Hits**
-- **🔍 Universal Search**: Instant search across millions of tracks with live album artwork.
-- **❤️ Collection & History**: Save favorites and track listening history backed by SQLite (`better-sqlite3`) and local storage.
-- **📦 Windows Setup Installer**: Includes an official NSIS installer that creates Windows Desktop and Start Menu shortcuts.
+- **🚀 Ultra-Lightweight Binary**: Setup installer is only **~21 MB** (down from >180 MB in Electron), and memory consumption is drastically reduced.
+- **⚡ Fast Native Startup**: Native Windows WebView2 runtime powered by Rust core backend.
+- **🎧 Pure Audio Playback**: Zero video decoding overhead. Streams direct audio feeds using native HTML5 `<audio>`.
+- **📥 Local Offline Downloads**: Download tracks directly to `%USERPROFILE%\Music\Rewind Downloads` using the bundled `yt-dlp` sidecar without requiring external Python installations.
+- **🔍 Native YouTube Search**: Embedded sidecar querying for instant discovery.
+- **💿 220+ Preloaded Tracks**: Curated playlists covering **K-Pop**, **Indie India**, and **English Hits**.
+- **📦 Clean NSIS Installer**: Creates Windows Desktop and Start Menu shortcuts automatically.
 
 ---
 
 ## 🛠️ Tech Stack
 
-- **Framework**: [Next.js 16](https://nextjs.org/) (Turbopack, App Router)
-- **Library**: [React 19](https://react.dev/)
-- **Desktop Runtime**: [Electron 44](https://www.electronjs.org/) & [electron-builder](https://www.electron.build/)
-- **Database**: SQLite with [better-sqlite3](https://github.com/WiseLibs/better-sqlite3) & [Drizzle ORM](https://orm.drizzle.team/)
-- **Audio Extraction**: `yt-dlp` streaming engine
-- **Icons**: [Lucide React](https://lucide.dev/)
-- **Language**: TypeScript 5
+- **Desktop Framework**: [Tauri v2](https://v2.tauri.app/)
+- **Core Native Backend**: Rust 2021 + Tauri Plugins (`shell`, `fs`, `dialog`, `process`)
+- **Frontend Framework**: [Next.js 16](https://nextjs.org/) (Static HTML/CSS/JS export)
+- **UI Library**: [React 19](https://react.dev/) + [Lucide React](https://lucide.dev/)
+- **Styling**: Tailored CSS design tokens & retro-futuristic theme
+- **Sidecar Engine**: Bundled `yt-dlp` Windows MSVC binary
 
 ---
 
 ## 🚀 Getting Started
 
 ### Prerequisites
-- [Node.js](https://nodejs.org/) (v18 or higher recommended)
-- [Python 3](https://www.python.org/) with `yt-dlp` installed:
-  ```bash
-  pip install -U yt-dlp
-  ```
+- [Node.js](https://nodejs.org/) (v18 or higher)
+- [Rust & Cargo](https://rustup.rs/) (v1.78+)
+- Microsoft C++ Build Tools (MSVC)
 
-### Installation
+### Development
 
-1. Clone the repository:
-   ```bash
-   git clone https://github.com/your-username/rewind-music-player.git
-   cd rewind-music-player
-   ```
-
-2. Install dependencies:
+1. Install dependencies:
    ```bash
    npm install
    ```
 
----
+2. Run the Tauri v2 Desktop App in development mode:
+   ```bash
+   npm run tauri:dev
+   ```
 
-## 💻 Running the App
-
-### Web Mode (Development)
-Run the local Next.js dev server:
-```bash
-npm run dev
-```
-Open [http://localhost:3000](http://localhost:3000) in your browser.
-
-### Desktop Mode (Electron)
-Launch the Electron desktop application window:
-```bash
-npm run electron
-```
+3. Or run only the frontend dev server:
+   ```bash
+   npm run dev
+   ```
 
 ---
 
-## 📦 Building the Windows Executable (.exe)
+## 📦 Building the Windows Executable & Installer
 
-### 1. Build the Windows Setup Installer (.exe)
-Generates an installer wizard that automatically sets up Desktop and Start Menu shortcuts:
+To build the production release binary and NSIS setup installer:
+
 ```bash
-npm run electron:build
-```
-The output will be created at:
-```
-dist-electron/Rewind Music Player Setup 1.0.0.exe
+npm run tauri:build
 ```
 
-### 2. Build the Standalone Portable (.exe)
-Generates a single `.exe` file that can be copied anywhere and runs without installation:
-```bash
-npx electron-builder --win portable
-```
-The output will be created at:
-```
-dist-electron/Rewind Music Player 1.0.0.exe
-```
+### Build Artifacts:
+- **Installer (.exe)**:
+  ```
+  src-tauri/target/release/bundle/nsis/Rewind Music Player_1.0.0_x64-setup.exe
+  ```
+- **Standalone Portable (.exe)**:
+  ```
+  src-tauri/target/release/Rewind Music Player Standalone.exe
+  ```
 
 ---
 
 ## 📂 Project Structure
 
 ```
-├── electron/
-│   ├── main.cjs               # Electron main process (clean window, IPC, download router)
-│   └── preload.cjs            # Electron preload contextBridge script
+├── src-tauri/                 # Tauri v2 Rust project
+│   ├── binaries/              # Native sidecars (yt-dlp)
+│   ├── capabilities/          # Security permissions (shell, fs, dialog)
+│   ├── src/                   # Rust entry points (main.rs, lib.rs)
+│   ├── Cargo.toml             # Rust dependencies
+│   └── tauri.conf.json        # Tauri v2 configuration & window settings
 ├── src/
-│   ├── app/                   # Next.js App Router (pages & API routes)
-│   │   ├── api/
-│   │   │   ├── download/      # Audio download streaming endpoint
-│   │   │   ├── library/       # SQLite favorites & history API
-│   │   │   ├── search/        # Track search API
-│   │   │   └── stream/        # Direct audio extraction and streaming
-│   │   ├── globals.css        # Global design system & retro-futuristic theme
-│   │   └── page.tsx           # Main application entry
+│   ├── app/                   # Next.js App Router (static export)
 │   ├── components/time/       # Player components, state hooks, and UI
 │   │   ├── time-machine.tsx   # Core music player UI & views
 │   │   ├── use-time-player.ts # Native HTML5 audio playback hook
 │   │   └── album-object.tsx   # Album art & vinyl rendering
-│   └── lib/time/              # Playlists, track metadata, and era definitions
-├── scripts/
-│   └── prepare-standalone.cjs # Standalone server asset preparation script
+│   └── lib/
+│       ├── tauri-audio.ts     # Native Tauri sidecar audio & download bridge
+│       └── time/              # Playlists, track metadata, and era definitions
+├── out/                       # Next.js static export directory
 └── package.json
 ```
 
@@ -125,4 +101,4 @@ dist-electron/Rewind Music Player 1.0.0.exe
 
 ## 📜 License
 
-MIT License. Designed and developed with care.
+MIT License.
