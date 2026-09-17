@@ -12,7 +12,6 @@ import {
   Shuffle,
   SkipBack,
   SkipForward,
-  Sliders,
   Volume2,
   VolumeX,
 } from "lucide-react";
@@ -30,7 +29,6 @@ interface PersistentPlayerProps {
   shuffle: boolean;
   repeat: boolean;
   isSaved: boolean;
-  eqOpen: boolean;
   queueOpen: boolean;
   onTogglePlay: () => void;
   onPrevious: () => void;
@@ -43,7 +41,6 @@ interface PersistentPlayerProps {
   onToggleFavorite: (track: TimeTrack) => void;
   onDownload: (track: TimeTrack) => void;
   onOpenDetails: (track: TimeTrack) => void;
-  onToggleEq: () => void;
   onToggleQueue: () => void;
 }
 
@@ -58,7 +55,6 @@ export function PersistentPlayer({
   shuffle,
   repeat,
   isSaved,
-  eqOpen,
   queueOpen,
   onTogglePlay,
   onPrevious,
@@ -71,7 +67,6 @@ export function PersistentPlayer({
   onToggleFavorite,
   onDownload,
   onOpenDetails,
-  onToggleEq,
   onToggleQueue,
 }: PersistentPlayerProps) {
   return (
@@ -183,14 +178,6 @@ export function PersistentPlayer({
           <i />
           FULL TRACK
         </span>
-        <button
-          className={`icon-button ${eqOpen ? "enabled" : ""}`}
-          onClick={onToggleEq}
-          aria-label="Toggle Equalizer"
-          title="Vintage Hi-Fi Equalizer"
-        >
-          <Sliders size={18} />
-        </button>
         <button
           className={`icon-button ${queueOpen ? "enabled" : ""}`}
           onClick={onToggleQueue}

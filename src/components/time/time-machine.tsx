@@ -58,7 +58,6 @@ import { SettingsView } from "@/components/views/SettingsView";
 // Core hooks & plugins
 import { useListeningLibrary } from "./use-listening-library";
 import { useTimePlayer } from "./use-time-player";
-import { VintageEqualizer } from "./vintage-equalizer";
 
 export type { UserPlaylist, DownloadedSong };
 
@@ -88,11 +87,10 @@ export function TimeMachine() {
   const [isElectron, setIsElectron] = useState<boolean>(false);
   const [selectedPlaylistId, setSelectedPlaylistId] = useState<string>("kpop-2026");
 
-  // Custom User Playlists & Equalizer
+  // Custom User Playlists
   const [customPlaylists, setCustomPlaylists] = useState<UserPlaylist[]>([]);
   const [newPlaylistOpen, setNewPlaylistOpen] = useState(false);
   const [addToPlaylistTrack, setAddToPlaylistTrack] = useState<TimeTrack | null>(null);
-  const [eqOpen, setEqOpen] = useState(false);
 
   // Navigation history & window controls
   const [viewHistory, setViewHistory] = useState<View[]>(["explore"]);
@@ -935,7 +933,6 @@ export function TimeMachine() {
         shuffle={player.shuffle}
         repeat={player.repeat}
         isSaved={isSaved(player.track)}
-        eqOpen={eqOpen}
         queueOpen={queueOpen}
         onTogglePlay={() => void player.toggle()}
         onPrevious={player.previous}
@@ -948,7 +945,6 @@ export function TimeMachine() {
         onToggleFavorite={favorite}
         onDownload={triggerDownload}
         onOpenDetails={setDetails}
-        onToggleEq={() => setEqOpen(!eqOpen)}
         onToggleQueue={() => setQueueOpen(!queueOpen)}
       />
 
@@ -981,13 +977,6 @@ export function TimeMachine() {
         />
       )}
 
-      {/* VINTAGE HI-FI EQUALIZER */}
-      <VintageEqualizer
-        audioRef={player.audioRef}
-        isPlaying={playing}
-        isOpen={eqOpen}
-        onClose={() => setEqOpen(false)}
-      />
 
       {/* CREATE / IMPORT PLAYLIST DIALOG */}
       <AddPlaylistDialog

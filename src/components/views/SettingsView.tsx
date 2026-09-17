@@ -5,7 +5,6 @@ import {
   Check,
   ExternalLink,
   Palette,
-  Sliders,
   Sparkles,
   Download,
   FolderOpen,
@@ -201,12 +200,12 @@ export function SettingsView({
                 <span className="github-tauri-pill">Tauri v2 Native</span>
               </div>
               <p>
-                Desktop music player streaming official YouTube full recordings with high-fidelity sound, custom playlists, professional equalizer, and native offline downloads.
+                Desktop music player streaming official YouTube full recordings with high-fidelity sound, custom playlists, and native offline downloads.
               </p>
               <div className="repo-badges-deck">
                 <span><ShieldCheck size={13} /> 100% Full Recordings</span>
                 <span><Zap size={13} /> Fast Rust Native Backend</span>
-                <span><Sliders size={13} /> Hi-Fi 5-Band Equalizer</span>
+                <span><Palette size={13} /> 5 Curated Themes</span>
               </div>
             </div>
           </div>
@@ -269,12 +268,12 @@ export function SettingsView({
 
           <div className="suggestion-card">
             <div className="suggestion-icon">
-              <Sliders size={20} />
+              <Palette size={20} />
             </div>
             <div className="suggestion-body">
-              <strong>Vintage Hi-Fi Studio Equalizer</strong>
+              <strong>Personalize Your Atmosphere</strong>
               <p>
-                Toggle the sliders button in the bottom player bar to adjust Sub-Bass (60Hz), Punch (250Hz), Vocals (1kHz), Presence (4kHz), and Air (12kHz), or choose from 6 curated presets.
+                Switch between 5 bespoke themes—including Midnight Vinyl, Cyberpunk Neon, and Warm Analog—to tailor the player's visual atmosphere to your listening mood.
               </p>
             </div>
           </div>

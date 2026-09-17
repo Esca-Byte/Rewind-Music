@@ -3,7 +3,7 @@
 
   # Rewind Music Player
 
-  **A modern, distraction-free desktop music player streaming official YouTube full recordings with high-fidelity sound, custom playlists, professional equalizer, and native offline downloads.**
+  **A modern, distraction-free desktop music player streaming official YouTube full recordings with high-fidelity sound, custom playlists, and native offline downloads.**
 
   <p>
     <a href="https://github.com/Esca-Byte/Rewind-Music/releases"><img src="https://img.shields.io/badge/Release-v1.0.1-rose?style=flat-square&color=e11d48" alt="Version 1.0.1" /></a>
@@ -20,7 +20,7 @@
 
 - 🎧 **100% Full Recordings**: Pure audio streaming with instant playback and zero video overhead.
 - 📥 **True Offline Downloads**: Download songs locally with the bundled native sidecar—no external tools needed.
-- 🎚️ **Vintage Hi-Fi Equalizer**: 5-band studio analog equalizer (Sub-Bass, Punch, Vocals, Presence, Air) with curated presets.
+- 🎛️ **Full Playback Queue**: Dynamic reordering, upcoming track previews, and instant queue management.
 - 🎨 **5 Curated Color Themes**: Switch between *Midnight Vinyl*, *Cyberpunk Neon*, *Warm Analog*, *Nordic Forest*, and *Tokyo Sunset*.
 - 📋 **YouTube Playlist Import**: Paste any public YouTube playlist URL or ID to instantly import all songs.
 - ⚡ **Ultra Lightweight**: Built on Tauri v2 and Rust—fast startup and minimal memory usage.
