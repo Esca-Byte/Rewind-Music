@@ -3,6 +3,7 @@
   "version": "1.0.1",
   "description": "Rewind Music Player Desktop Application",
   "author": "Rewind",
+  "license": "GPL-3.0-or-later",
   "private": true,
   "scripts": {
     "dev": "next dev",

@@ -101,4 +101,4 @@ npm run tauri:build
 
 ## 📜 License
 
-MIT License.
+This project is open-source and licensed under the **GNU General Public License v3.0 (GPL-3.0)**. See the [LICENSE](LICENSE) file for the complete terms and conditions.

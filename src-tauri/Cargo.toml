@@ -3,8 +3,8 @@ name = "app"
 version = "1.0.1"
 description = "A Tauri App"
 authors = ["you"]
-license = ""
-repository = ""
+license = "GPL-3.0-or-later"
+repository = "https://github.com/Esca-Byte/Rewind-Music"
 edition = "2021"
 rust-version = "1.77.2"
 
