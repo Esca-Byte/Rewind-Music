@@ -33,8 +33,8 @@ export function AboutDialog({ isOpen, onClose }: AboutDialogProps) {
           history are saved locally for this browser.
         </p>
         <p>
-          <strong>Keyboard Shortcuts.</strong> Space to play or pause. K to open
-          search. Escape to close dialogs.
+          <strong>Keyboard Shortcuts.</strong> Space to play or pause. Escape to
+          close dialogs.
         </p>
       </div>
     </Dialog>

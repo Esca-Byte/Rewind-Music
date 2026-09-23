@@ -290,10 +290,6 @@ export function SettingsView({
                   <span>Play or pause current playback</span>
                 </div>
                 <div>
-                  <kbd>⌘ K</kbd> / <kbd>Ctrl K</kbd>
-                  <span>Instant YouTube global search</span>
-                </div>
-                <div>
                   <kbd>Esc</kbd>
                   <span>Dismiss open modals & dialogs</span>
                 </div>

@@ -284,16 +284,19 @@ export function TimeMachine() {
 
   const navigate = useCallback(
     (next: View) => {
+      if (next === view) return;
       setView(next);
       setViewHistory((prev) => [...prev.slice(0, historyIndex + 1), next]);
       setHistoryIndex((prev) => prev + 1);
-      setQuery("");
-      setSearchError("");
-      searchAbort.current?.abort();
-      searchId.current++;
+      if (next !== "search") {
+        setQuery("");
+        setSearchError("");
+        searchAbort.current?.abort();
+        searchId.current++;
+      }
       window.scrollTo({ top: 0, behavior: "smooth" });
     },
-    [historyIndex]
+    [view, historyIndex]
   );
 
   const goBack = useCallback(() => {
@@ -643,13 +646,7 @@ export function TimeMachine() {
       const editing =
         input.isContentEditable ||
         ["INPUT", "TEXTAREA", "SELECT", "BUTTON"].includes(input.tagName);
-      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
-        event.preventDefault();
-        searchInput.current?.focus();
-      } else if (!editing && event.key.toLowerCase() === "k") {
-        event.preventDefault();
-        searchInput.current?.focus();
-      } else if (
+      if (
         !editing &&
         event.code === "Space" &&
         !document.querySelector('[aria-modal="true"]')

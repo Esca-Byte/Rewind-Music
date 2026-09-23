@@ -169,11 +169,13 @@ export function Topbar({
             placeholder="Search any artist, song, or video on YouTube…"
             aria-label="Search songs and artists"
             onChange={(event) => {
-              setQuery(event.target.value);
-              if (event.target.value.trim().length >= 2) onNavigate("search");
+              const val = event.target.value;
+              setQuery(val);
+              if (val.trim().length >= 2 && view !== "search") {
+                onNavigate("search");
+              }
             }}
           />
-          <kbd>⌘ K</kbd>
           {query && (
             <button
               className="clear-search"
