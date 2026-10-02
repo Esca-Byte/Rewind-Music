@@ -9,6 +9,32 @@ export interface UserPlaylist {
   accent?: string;
   cover?: string;
   youtubeId?: string;
+  spotifyId?: string;
+}
+
+export interface SpotifyTrackItem {
+  id: string;
+  title: string;
+  artist: string;
+  duration: number;
+}
+
+export interface SpotifyPlaylistResult {
+  id: string;
+  spotifyId: string;
+  title: string;
+  description: string;
+  cover: string;
+  trackCount: number;
+  totalDuration: number;
+  tracks: SpotifyTrackItem[];
+}
+
+export interface MatchedYouTubeTrack {
+  videoId: string;
+  title: string;
+  duration: number;
+  cover: string;
 }
 
 export interface DownloadedSong {

@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { TimeTrack } from "@/lib/time/types";
 import { resolveAudioStreamUrl, isTauriEnvironment } from "@/lib/tauri-audio";
 import { convertFileSrc } from "@tauri-apps/api/core";
@@ -266,33 +266,11 @@ export function useTimePlayer(initial: TimeTrack, onListen: (track: TimeTrack) =
     setError("Audio stream could not be loaded. Please retry or pick another song.");
   }, []);
 
-  return {
-    audioRef,
-    track,
-    queue,
-    status,
-    position,
-    duration,
-    volume,
-    muted,
-    shuffle,
-    repeat,
-    error,
-    choose,
-    toggle,
-    next: () => next(1),
-    previous,
-    seek,
-    playNext,
-    addToQueue,
-    removeFromQueue,
-    clearQueue,
-    setVolume,
-    setMuted,
-    setShuffle,
-    setRepeat,
-    retry: () => start(values.current.track),
-    audioProps: {
+  const nextTrack = useCallback(() => next(1), [next]);
+  const retry = useCallback(() => start(values.current.track), [start]);
+
+  const audioProps = useMemo(
+    () => ({
       ref: audioRef,
       onTimeUpdate: handleTimeUpdate,
       onLoadedMetadata: handleLoadedMetadata,
@@ -301,6 +279,73 @@ export function useTimePlayer(initial: TimeTrack, onListen: (track: TimeTrack) =
       onWaiting: handleWaiting,
       onEnded: handleEnded,
       onError: handleError,
-    },
-  };
+    }),
+    [
+      handleTimeUpdate,
+      handleLoadedMetadata,
+      handlePlay,
+      handlePause,
+      handleWaiting,
+      handleEnded,
+      handleError,
+    ]
+  );
+
+  return useMemo(
+    () => ({
+      audioRef,
+      track,
+      queue,
+      status,
+      position,
+      duration,
+      volume,
+      muted,
+      shuffle,
+      repeat,
+      error,
+      choose,
+      toggle,
+      next: nextTrack,
+      previous,
+      seek,
+      playNext,
+      addToQueue,
+      removeFromQueue,
+      clearQueue,
+      setVolume,
+      setMuted,
+      setShuffle,
+      setRepeat,
+      retry,
+      audioProps,
+    }),
+    [
+      track,
+      queue,
+      status,
+      position,
+      duration,
+      volume,
+      muted,
+      shuffle,
+      repeat,
+      error,
+      choose,
+      toggle,
+      nextTrack,
+      previous,
+      seek,
+      playNext,
+      addToQueue,
+      removeFromQueue,
+      clearQueue,
+      setVolume,
+      setMuted,
+      setShuffle,
+      setRepeat,
+      retry,
+      audioProps,
+    ]
+  );
 }

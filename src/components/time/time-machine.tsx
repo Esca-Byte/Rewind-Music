@@ -123,7 +123,11 @@ export function TimeMachine() {
           custom.cover ||
           "https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?w=600&q=80",
         accent: custom.accent || "#e0a82e",
-        url: "",
+        url: custom.spotifyId
+          ? `https://open.spotify.com/playlist/${custom.spotifyId}`
+          : custom.youtubeId
+          ? `https://www.youtube.com/playlist?list=${custom.youtubeId}`
+          : "",
         totalDuration: custom.tracks.reduce(
           (sum, t) => sum + (t.duration || 180),
           0
@@ -159,11 +163,13 @@ export function TimeMachine() {
       singleTrack?: TimeTrack,
       initialTracks?: TimeTrack[],
       cover?: string,
-      youtubeId?: string
+      youtubeId?: string,
+      spotifyId?: string
     ) => {
       const trimmed = title.trim();
       if (!trimmed) return;
       const colors = [
+        "#1db954",
         "#e0a82e",
         "#ec4899",
         "#8b5cf6",
@@ -183,15 +189,20 @@ export function TimeMachine() {
         title: trimmed,
         description:
           description?.trim() ||
-          (youtubeId ? "Imported from YouTube" : "User created playlist"),
+          (spotifyId
+            ? "Imported from Spotify"
+            : youtubeId
+            ? "Imported from YouTube"
+            : "User created playlist"),
         createdAt: Date.now(),
         tracks,
-        accent: colors[customPlaylists.length % colors.length],
+        accent: spotifyId ? "#1db954" : colors[customPlaylists.length % colors.length],
         cover:
           cover ||
           tracks[0]?.cover ||
           "https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?w=600&q=80",
         youtubeId,
+        spotifyId,
       };
       const updated = [newPl, ...customPlaylists];
       persistCustomPlaylists(updated);
@@ -337,6 +348,11 @@ export function TimeMachine() {
     [library.favorites]
   );
 
+  const playerChooseRef = useRef(player.choose);
+  useEffect(() => {
+    playerChooseRef.current = player.choose;
+  }, [player.choose]);
+
   const runSearch = useCallback(
     async (text: string, autoplay = false) => {
       const value = text.trim();
@@ -376,7 +392,7 @@ export function TimeMachine() {
         setResults(songs);
         setSearchedFor(value);
         setSearching(false);
-        if (autoplay && songs[0]) player.choose(songs[0], songs);
+        if (autoplay && songs[0]) playerChooseRef.current(songs[0], songs);
       } catch (error) {
         if (controller.signal.aborted || id !== searchId.current) return;
         setSearching(false);
@@ -388,7 +404,7 @@ export function TimeMachine() {
         );
       }
     },
-    [allTracks, player]
+    [allTracks]
   );
 
   useEffect(() => {
@@ -397,7 +413,7 @@ export function TimeMachine() {
       searchAbort.current?.abort();
       searchId.current++;
       setSearching(false);
-      setResults([]);
+      setResults((prev) => (prev.length === 0 ? prev : []));
       return;
     }
     searchTimer.current = setTimeout(() => void runSearch(value), 550);
@@ -406,9 +422,11 @@ export function TimeMachine() {
     };
   }, [query, runSearch]);
 
+  const isSyncingRef = useRef(false);
   const syncDownloads = useCallback(
     async (silent = true) => {
-      if (!isTauriEnvironment()) return;
+      if (!isTauriEnvironment() || isSyncingRef.current) return;
+      isSyncingRef.current = true;
       try {
         setSyncingDownloads(true);
         const diskTracks = await scanDownloadsFolder();
@@ -444,6 +462,7 @@ export function TimeMachine() {
         console.error("Failed to sync downloads:", err);
         if (!silent) notify("Failed to sync downloads folder.");
       } finally {
+        isSyncingRef.current = false;
         setSyncingDownloads(false);
       }
     },
@@ -537,13 +556,21 @@ export function TimeMachine() {
   useEffect(() => {
     if (!isTauriEnvironment()) return;
     let unlisten: (() => void) | undefined;
+    let resizeTimer: ReturnType<typeof setTimeout> | null = null;
     const init = async () => {
       try {
         setIsMaximized(await isAppWindowMaximized());
         const { getCurrentWindow } = await import("@tauri-apps/api/window");
         const win = getCurrentWindow();
-        unlisten = await win.onResized(async () => {
-          setIsMaximized(await isAppWindowMaximized());
+        unlisten = await win.onResized(() => {
+          if (resizeTimer) clearTimeout(resizeTimer);
+          resizeTimer = setTimeout(async () => {
+            try {
+              setIsMaximized(await win.isMaximized());
+            } catch {
+              /* ignore */
+            }
+          }, 150);
         });
       } catch (e) {
         console.warn("Failed to attach window resize listener:", e);
@@ -551,6 +578,7 @@ export function TimeMachine() {
     };
     void init();
     return () => {
+      if (resizeTimer) clearTimeout(resizeTimer);
       if (unlisten) unlisten();
     };
   }, []);
@@ -617,7 +645,7 @@ export function TimeMachine() {
     }
   }, []);
 
-  // Initial load, keyboard shortcuts & lifecycle
+  // Initial load runs once on mount
   useEffect(() => {
     setToday(localDay(new Date()));
     try {
@@ -640,7 +668,15 @@ export function TimeMachine() {
         .catch(() => {});
       void syncDownloads(true);
     }
+  }, [syncDownloads]);
 
+  const playerToggleRef = useRef(player.toggle);
+  useEffect(() => {
+    playerToggleRef.current = player.toggle;
+  }, [player.toggle]);
+
+  // Spacebar play/pause shortcut
+  useEffect(() => {
     const shortcut = (event: KeyboardEvent) => {
       const input = event.target as HTMLElement;
       const editing =
@@ -652,14 +688,14 @@ export function TimeMachine() {
         !document.querySelector('[aria-modal="true"]')
       ) {
         event.preventDefault();
-        void player.toggle();
+        void playerToggleRef.current();
       }
     };
     window.addEventListener("keydown", shortcut);
     return () => {
       window.removeEventListener("keydown", shortcut);
     };
-  }, [player, syncDownloads]);
+  }, []);
 
   useEffect(() => {
     const onFocus = () => {

@@ -12,6 +12,8 @@ import {
   Trash2,
 } from "lucide-react";
 import { TrackRow } from "@/components/track/TrackRow";
+import { YoutubeIcon } from "@/components/common/YoutubeIcon";
+import { SpotifyIcon } from "@/components/common/SpotifyIcon";
 import { playlists as curatedPlaylists } from "@/lib/time/playlists";
 import type { TimeTrack } from "@/lib/time/types";
 import type { UserPlaylist, ActivePlaylistDisplay, View } from "@/types/music";
@@ -124,12 +126,19 @@ export function PlaylistView({
             </div>
             <div className="playlist-nav-meta">
               <strong>{pl.title}</strong>
-              <span>
-                {pl.tracks.length} songs ·{" "}
-                {Math.round(
-                  pl.tracks.reduce((s, t) => s + (t.duration || 180), 0) / 60
-                )}{" "}
-                min
+              <span style={{ display: "inline-flex", alignItems: "center", gap: 5 }}>
+                {pl.spotifyId ? (
+                  <SpotifyIcon size={12} className="text-[#1db954] flex-shrink-0" />
+                ) : pl.youtubeId ? (
+                  <YoutubeIcon size={12} className="text-[#ef4444] flex-shrink-0" />
+                ) : null}
+                <span>
+                  {pl.tracks.length} songs ·{" "}
+                  {Math.round(
+                    pl.tracks.reduce((s, t) => s + (t.duration || 180), 0) / 60
+                  )}{" "}
+                  min
+                </span>
               </span>
             </div>
           </button>
@@ -157,7 +166,13 @@ export function PlaylistView({
         <div className="playlist-hero-artwork">
           <img src={activePlaylist.cover} alt={activePlaylist.title} />
           <span className="playlist-pill-tag">
-            {activePlaylist.isCustom ? "CUSTOM PLAYLIST" : "CURATED PLAYLIST"}
+            {activePlaylist.url?.includes("spotify.com")
+              ? "SPOTIFY PLAYLIST"
+              : activePlaylist.url?.includes("youtube.com")
+              ? "YOUTUBE PLAYLIST"
+              : activePlaylist.isCustom
+              ? "CUSTOM PLAYLIST"
+              : "CURATED PLAYLIST"}
           </span>
         </div>
         <div className="playlist-hero-body">
@@ -183,7 +198,17 @@ export function PlaylistView({
                   rel="noreferrer"
                   className="playlist-ext-link"
                 >
-                  Open on YouTube <ArrowUpRight size={13} />
+                  {activePlaylist.url.includes("spotify.com") ? (
+                    <>
+                      <SpotifyIcon size={13} className="text-[#1db954]" /> Open on Spotify{" "}
+                      <ArrowUpRight size={13} />
+                    </>
+                  ) : (
+                    <>
+                      <YoutubeIcon size={13} className="text-[#ef4444]" /> Open on YouTube{" "}
+                      <ArrowUpRight size={13} />
+                    </>
+                  )}
                 </a>
               </>
             ) : null}

@@ -1,5 +1,6 @@
 import { invoke, isTauri } from "@tauri-apps/api/core";
 import type { TimeTrack } from "@/lib/time/types";
+import type { SpotifyPlaylistResult, SpotifyTrackItem, MatchedYouTubeTrack } from "@/types/music";
 
 const streamUrlCache = new Map<string, { url: string; expires: number }>();
 
@@ -259,5 +260,52 @@ export async function fetchYouTubePlaylist(urlOrId: string): Promise<ImportedYou
   throw new Error("YouTube playlist import requires the Rewind desktop app.");
 }
 
+/**
+ * Fetches a public Spotify playlist metadata & tracks via embed endpoint.
+ */
+export async function fetchSpotifyPlaylist(urlOrId: string): Promise<SpotifyPlaylistResult> {
+  const trimmed = urlOrId.trim();
+  if (!trimmed) {
+    throw new Error("Please enter a Spotify playlist link or ID");
+  }
 
+  if (isTauriEnvironment()) {
+    return await invoke<SpotifyPlaylistResult>("fetch_spotify_playlist", {
+      urlOrId: trimmed,
+    });
+  }
 
+  throw new Error("Spotify playlist import requires the Rewind desktop app.");
+}
+
+/**
+ * Searches and matches a Spotify song to a playable YouTube track.
+ */
+export async function matchTrackToYouTube(
+  artist: string,
+  title: string
+): Promise<MatchedYouTubeTrack> {
+  if (isTauriEnvironment()) {
+    return await invoke<MatchedYouTubeTrack>("match_track_to_youtube", {
+      artist,
+      title,
+    });
+  }
+
+  throw new Error("Track matching requires the Rewind desktop app.");
+}
+
+/**
+ * Batch matches Spotify songs to YouTube tracks.
+ */
+export async function matchSpotifyTracksBatch(
+  tracks: SpotifyTrackItem[]
+): Promise<(MatchedYouTubeTrack | null)[]> {
+  if (isTauriEnvironment()) {
+    return await invoke<(MatchedYouTubeTrack | null)[]>("match_spotify_tracks_batch", {
+      tracks,
+    });
+  }
+
+  throw new Error("Batch matching requires the Rewind desktop app.");
+}
