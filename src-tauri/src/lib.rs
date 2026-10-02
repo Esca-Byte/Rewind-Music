@@ -54,16 +54,21 @@ fn ensure_yt_dlp() -> Result<PathBuf, String> {
 async fn resolve_stream_url(video_id: String) -> Result<String, String> {
     tauri::async_runtime::spawn_blocking(move || {
         let yt_dlp_path = ensure_yt_dlp()?;
-        let mut cmd = std::process::Command::new(yt_dlp_path);
+        let mut cmd = std::process::Command::new(&yt_dlp_path);
 
         #[cfg(windows)]
         cmd.creation_flags(CREATE_NO_WINDOW);
 
         let watch_url = format!("https://www.youtube.com/watch?v={video_id}");
+
+        // Primary attempt: Android/Web client with ba/b and force-ipv4 for unthrottled ratebypass streams
         cmd.args([
             "-f",
-            "ba[ext=m4a]/ba/b",
+            "ba/b",
             "-g",
+            "--force-ipv4",
+            "--extractor-args",
+            "youtube:player_client=android,web",
             "--no-warnings",
             "--no-playlist",
             &watch_url,
@@ -81,11 +86,37 @@ async fn resolve_stream_url(video_id: String) -> Result<String, String> {
                     return Ok(line.to_string());
                 }
             }
-            Err("No playable audio stream URL returned".to_string())
-        } else {
-            let stderr = String::from_utf8_lossy(&output.stderr);
-            Err(format!("yt-dlp stream extraction error: {stderr}"))
         }
+
+        // Secondary attempt: standard ba[ext=m4a]/ba/b without client override if video is restricted on android
+        let mut fallback_cmd = std::process::Command::new(&yt_dlp_path);
+        #[cfg(windows)]
+        fallback_cmd.creation_flags(CREATE_NO_WINDOW);
+
+        fallback_cmd.args([
+            "-f",
+            "ba[ext=m4a]/ba/b",
+            "-g",
+            "--force-ipv4",
+            "--no-warnings",
+            "--no-playlist",
+            &watch_url,
+        ]);
+
+        if let Ok(fb_out) = fallback_cmd.output() {
+            if fb_out.status.success() {
+                let stdout = String::from_utf8_lossy(&fb_out.stdout);
+                for line in stdout.lines().rev() {
+                    let line = line.trim();
+                    if line.starts_with("http") {
+                        return Ok(line.to_string());
+                    }
+                }
+            }
+        }
+
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        Err(format!("No playable audio stream URL returned: {stderr}"))
     })
     .await
     .map_err(|e| format!("Stream resolve task error: {e}"))?

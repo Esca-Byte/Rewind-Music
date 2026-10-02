@@ -11,13 +11,21 @@ export function isTauriEnvironment(): boolean {
   );
 }
 
+export function invalidateStreamCache(videoId: string): void {
+  streamUrlCache.delete(videoId);
+}
+
 /**
  * Resolves direct audio stream URL using the native Rust Tauri command.
  */
-export async function resolveAudioStreamUrl(videoId: string): Promise<string> {
-  const cached = streamUrlCache.get(videoId);
-  if (cached && cached.expires > Date.now()) {
-    return cached.url;
+export async function resolveAudioStreamUrl(videoId: string, bypassCache = false): Promise<string> {
+  if (bypassCache) {
+    streamUrlCache.delete(videoId);
+  } else {
+    const cached = streamUrlCache.get(videoId);
+    if (cached && cached.expires > Date.now()) {
+      return cached.url;
+    }
   }
 
   if (isTauriEnvironment()) {
@@ -27,13 +35,15 @@ export async function resolveAudioStreamUrl(videoId: string): Promise<string> {
         streamUrlCache.set(videoId, { url: directUrl, expires: Date.now() + 45 * 60 * 1000 });
         return directUrl;
       }
-    } catch (err) {
-      console.error("Native audio extraction failed:", err);
+      throw new Error("No playable audio stream URL returned");
+    } catch (err: any) {
+      streamUrlCache.delete(videoId);
+      console.error(`Native audio extraction failed for ${videoId}:`, err);
+      throw new Error(typeof err === "string" ? err : err?.message || "Failed to extract audio stream");
     }
   }
 
-  // Fallback if not inside Tauri desktop app
-  return `https://www.youtube.com/watch?v=${videoId}`;
+  throw new Error("Desktop audio streaming requires the Rewind desktop app.");
 }
 
 /**

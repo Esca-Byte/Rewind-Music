@@ -105,10 +105,23 @@ export function TimeMachine() {
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lookupCache = useRef(new Map<string, TimeTrack[]>());
 
+  const notify = useCallback((message: string) => {
+    if (toastTimer.current) clearTimeout(toastTimer.current);
+    setToast(message);
+    toastTimer.current = setTimeout(() => setToast(""), 2800);
+  }, []);
+
+  const handleTrackError = useCallback(
+    (failedTrack: TimeTrack, reason: string) => {
+      notify(`Skipped "${failedTrack.title}" (${reason})`);
+    },
+    [notify]
+  );
+
   const library = useListeningLibrary();
   const allTracks = useMemo(() => getAllPlaylistTracks(), []);
   const initialTrack = playlists[0]?.tracks[0] || allTracks[0];
-  const player = useTimePlayer(initialTrack, library.listen);
+  const player = useTimePlayer(initialTrack, library.listen, handleTrackError);
   const playing = player.status === "playing";
 
   const activePlaylist: ActivePlaylistDisplay = useMemo(() => {
@@ -140,12 +153,6 @@ export function TimeMachine() {
     const curated = getPlaylist(selectedPlaylistId) ?? playlists[0];
     return { ...curated, isCustom: false };
   }, [selectedPlaylistId, customPlaylists]);
-
-  const notify = useCallback((message: string) => {
-    if (toastTimer.current) clearTimeout(toastTimer.current);
-    setToast(message);
-    toastTimer.current = setTimeout(() => setToast(""), 2800);
-  }, []);
 
   const persistCustomPlaylists = useCallback((next: UserPlaylist[]) => {
     setCustomPlaylists(next);
