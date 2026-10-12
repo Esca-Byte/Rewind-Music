@@ -3,20 +3,24 @@
 import React, { type CSSProperties } from "react";
 import {
   ArrowDownToLine,
+  Clock3,
   Heart,
   ListMusic,
   LoaderCircle,
+  Moon,
   Pause,
   Play,
   Repeat2,
   Shuffle,
   SkipBack,
   SkipForward,
+  Sparkles,
   Volume2,
   VolumeX,
 } from "lucide-react";
 import { clock, type TimeTrack } from "@/lib/time/types";
 import { Artwork } from "@/components/time/album-object";
+import type { SleepTimerMinutes } from "@/components/time/use-sleep-timer";
 
 interface PersistentPlayerProps {
   track: TimeTrack;
@@ -42,6 +46,13 @@ interface PersistentPlayerProps {
   onDownload: (track: TimeTrack) => void;
   onOpenDetails: (track: TimeTrack) => void;
   onToggleQueue: () => void;
+  similarTrackCount: number;
+  onPlaySimilar: () => void;
+  sleepTimerActive: boolean;
+  sleepTimerRemainingSeconds: number;
+  sleepTimerDurations: readonly SleepTimerMinutes[];
+  onStartSleepTimer: (minutes: SleepTimerMinutes) => void;
+  onCancelSleepTimer: () => void;
 }
 
 export function PersistentPlayer({
@@ -68,7 +79,40 @@ export function PersistentPlayer({
   onDownload,
   onOpenDetails,
   onToggleQueue,
+  similarTrackCount,
+  onPlaySimilar,
+  sleepTimerActive,
+  sleepTimerRemainingSeconds,
+  sleepTimerDurations,
+  onStartSleepTimer,
+  onCancelSleepTimer,
 }: PersistentPlayerProps) {
+  const [sleepMenuOpen, setSleepMenuOpen] = React.useState(false);
+  const sleepTimerControlRef = React.useRef<HTMLDivElement>(null);
+  const sleepClock = `${Math.floor(sleepTimerRemainingSeconds / 60)}:${String(
+    sleepTimerRemainingSeconds % 60
+  ).padStart(2, "0")}`;
+
+  React.useEffect(() => {
+    if (!sleepMenuOpen) return;
+
+    const handlePointerDown = (event: PointerEvent) => {
+      if (!sleepTimerControlRef.current?.contains(event.target as Node)) {
+        setSleepMenuOpen(false);
+      }
+    };
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setSleepMenuOpen(false);
+    };
+
+    document.addEventListener("pointerdown", handlePointerDown);
+    document.addEventListener("keydown", handleKeyDown);
+    return () => {
+      document.removeEventListener("pointerdown", handlePointerDown);
+      document.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [sleepMenuOpen]);
+
   return (
     <section className="persistent-player" aria-label="Music player">
       <div className="player-current">
@@ -126,7 +170,7 @@ export function PersistentPlayer({
           <button
             className="main-play-button"
             onClick={onTogglePlay}
-            aria-label={playing ? "Pause playback" : "Play full recording"}
+             aria-label={playing ? "Pause playback" : "Play current track"}
           >
             {status === "loading" ? (
               <LoaderCircle size={21} className="spinner" />
@@ -157,7 +201,7 @@ export function PersistentPlayer({
           <span>{clock(position)}</span>
           <input
             type="range"
-            aria-label="Seek through full recording"
+             aria-label="Seek through current track"
             min={0}
             max={duration || 1}
             value={Math.min(position, duration || 1)}
@@ -187,6 +231,64 @@ export function PersistentPlayer({
         >
           <ListMusic size={19} />
         </button>
+        <button
+          className={`icon-button ${similarTrackCount ? "enabled" : ""}`}
+          onClick={onPlaySimilar}
+          aria-label="Play similar tracks"
+          title={`Play similar tracks${similarTrackCount ? ` (${similarTrackCount})` : ""}`}
+        >
+          <Sparkles size={17} />
+        </button>
+        <div className="sleep-timer-control" ref={sleepTimerControlRef}>
+          <button
+            type="button"
+            className={`icon-button ${sleepTimerActive ? "enabled" : ""}`}
+            onClick={() => setSleepMenuOpen((open) => !open)}
+            aria-label={sleepTimerActive ? `Sleep timer ${sleepClock} remaining` : "Set sleep timer"}
+            aria-expanded={sleepMenuOpen}
+            aria-controls="sleep-timer-options"
+            aria-haspopup="dialog"
+            title="Sleep timer"
+          >
+            {sleepTimerActive ? <Clock3 size={18} /> : <Moon size={17} />}
+          </button>
+          {sleepMenuOpen && (
+            <div
+              id="sleep-timer-options"
+              className="sleep-timer-menu"
+              role="dialog"
+              aria-label="Sleep timer options"
+            >
+              <strong aria-live="polite">
+                {sleepTimerActive ? `Stops in ${sleepClock}` : "Sleep timer"}
+              </strong>
+              {sleepTimerDurations.map((minutes) => (
+                <button
+                  key={minutes}
+                  type="button"
+                  onClick={() => {
+                    onStartSleepTimer(minutes);
+                    setSleepMenuOpen(false);
+                  }}
+                >
+                  {minutes} minutes
+                </button>
+              ))}
+              {sleepTimerActive && (
+                <button
+                  type="button"
+                  className="sleep-timer-cancel"
+                  onClick={() => {
+                    onCancelSleepTimer();
+                    setSleepMenuOpen(false);
+                  }}
+                >
+                  Cancel timer
+                </button>
+              )}
+            </div>
+          )}
+        </div>
         <div className="player-volume">
           <button
             className="icon-button"

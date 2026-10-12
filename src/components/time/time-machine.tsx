@@ -15,6 +15,8 @@ import {
   getAllPlaylistTracks,
 } from "@/lib/time/playlists";
 import { type TimeTrack } from "@/lib/time/types";
+import { getSimilarTracks } from "@/lib/time/similar-tracks";
+import { getTrackCoverUrl } from "@/components/time/album-object";
 import {
   isTauriEnvironment,
   searchTracks,
@@ -26,7 +28,18 @@ import {
   toggleMaximizeAppWindow,
   closeAppWindow,
   isAppWindowMaximized,
+  showMiniPlayerWindow,
+  hideMiniPlayerWindow,
+  restoreAppWindow,
 } from "@/lib/tauri-audio";
+import { emit, listen } from "@tauri-apps/api/event";
+import {
+  MINI_PLAYER_COMMAND_EVENT,
+  MINI_PLAYER_READY_EVENT,
+  MINI_PLAYER_STATE_EVENT,
+  type MiniPlayerCommand,
+  type MiniPlayerSnapshot,
+} from "@/lib/mini-player";
 
 import type {
   UserPlaylist,
@@ -58,6 +71,8 @@ import { SettingsView } from "@/components/views/SettingsView";
 // Core hooks & plugins
 import { useListeningLibrary } from "./use-listening-library";
 import { useTimePlayer } from "./use-time-player";
+import { useMediaKeys } from "./use-media-keys";
+import { useSleepTimer } from "./use-sleep-timer";
 
 export type { UserPlaylist, DownloadedSong };
 
@@ -104,6 +119,7 @@ export function TimeMachine() {
   const searchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lookupCache = useRef(new Map<string, TimeTrack[]>());
+  const smartQueueSeed = useRef("");
 
   const notify = useCallback((message: string) => {
     if (toastTimer.current) clearTimeout(toastTimer.current);
@@ -123,6 +139,72 @@ export function TimeMachine() {
   const initialTrack = playlists[0]?.tracks[0] || allTracks[0];
   const player = useTimePlayer(initialTrack, library.listen, handleTrackError);
   const playing = player.status === "playing";
+
+  useMediaKeys({
+    onPlay: () => void player.play(),
+    onPause: player.pause,
+    onNextTrack: player.next,
+    onPreviousTrack: player.previous,
+    metadata: player.track
+      ? {
+          title: player.track.title,
+          artist: player.track.artist,
+          album: player.track.album,
+          artwork: getTrackCoverUrl(player.track)
+            ? [{ src: getTrackCoverUrl(player.track), sizes: "512x512", type: "image/jpeg" }]
+            : [],
+        }
+      : null,
+    status: player.status,
+    duration: player.duration,
+    position: player.position,
+  });
+
+  const handleSleepTimerExpired = () => {
+    player.audioRef.current?.pause();
+    notify("Sleep timer ended. Playback paused.");
+  };
+  const sleepTimer = useSleepTimer(handleSleepTimerExpired);
+
+  const isCurrentTrackSaved = useMemo(
+    () => library.favorites.some((item) => item.videoId === player.track.videoId),
+    [library.favorites, player.track.videoId]
+  );
+
+  const miniSnapshot: MiniPlayerSnapshot = useMemo(
+    () => ({
+      track: player.track,
+      playing,
+      status: player.status,
+      position: player.position,
+      duration: player.duration,
+      volume: player.volume,
+      muted: player.muted,
+      theme,
+      isSaved: isCurrentTrackSaved,
+    }),
+    [
+      player.track,
+      playing,
+      player.status,
+      player.position,
+      player.duration,
+      player.volume,
+      player.muted,
+      theme,
+      isCurrentTrackSaved,
+    ]
+  );
+
+  const miniSnapshotRef = useRef(miniSnapshot);
+  useEffect(() => {
+    miniSnapshotRef.current = miniSnapshot;
+  }, [miniSnapshot]);
+
+  const emitMiniSnapshot = useCallback(() => {
+    if (isTauriEnvironment()) void emit(MINI_PLAYER_STATE_EVENT, miniSnapshotRef.current);
+  }, []);
+
 
   const activePlaylist: ActivePlaylistDisplay = useMemo(() => {
     const custom = customPlaylists.find((p) => p.id === selectedPlaylistId);
@@ -153,6 +235,64 @@ export function TimeMachine() {
     const curated = getPlaylist(selectedPlaylistId) ?? playlists[0];
     return { ...curated, isCustom: false };
   }, [selectedPlaylistId, customPlaylists]);
+
+  const recommendationPool = useMemo(() => {
+    const tracks = [
+      ...allTracks,
+      ...activePlaylist.tracks,
+      ...customPlaylists.flatMap((playlist) => playlist.tracks),
+      ...library.favorites,
+      ...library.history.map((memory) => memory.track),
+    ];
+    const seen = new Set<string>();
+    return tracks.filter((candidate) => {
+      const key = candidate.videoId || candidate.id;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+  }, [activePlaylist.tracks, allTracks, customPlaylists, library.favorites, library.history]);
+
+  const similarTracks = useMemo(
+    () => getSimilarTracks(player.track, recommendationPool, 8),
+    [player.track, recommendationPool]
+  );
+
+  const playSimilarTracks = useCallback(() => {
+    const current = player.track;
+    const existing = player.queue.filter(
+      (candidate) => candidate.videoId !== current.videoId && candidate.id !== current.id
+    );
+    const additions = similarTracks.filter(
+      (candidate) =>
+        !existing.some(
+          (queued) => queued.videoId === candidate.videoId || queued.id === candidate.id
+        )
+    );
+    const nextQueue = [current, ...existing, ...additions];
+    const first = additions[0] || existing[0];
+    if (!first) {
+      notify("No similar tracks found for this song.");
+      return;
+    }
+    player.choose(first, nextQueue);
+    notify(`Smart queue added ${additions.length || 1} similar track${(additions.length || 1) === 1 ? "" : "s"}.`);
+  }, [notify, player, similarTracks]);
+
+  useEffect(() => {
+    if (
+      !playing ||
+      !player.duration ||
+      player.position < Math.max(1, player.duration - 12) ||
+      player.queue.length > 1 ||
+      smartQueueSeed.current === player.track.id
+    ) {
+      return;
+    }
+    smartQueueSeed.current = player.track.id;
+    const additions = getSimilarTracks(player.track, recommendationPool, 5);
+    additions.forEach((candidate) => player.addToQueue(candidate));
+  }, [player, playing, recommendationPool]);
 
   const persistCustomPlaylists = useCallback((next: UserPlaylist[]) => {
     setCustomPlaylists(next);
@@ -354,6 +494,26 @@ export function TimeMachine() {
       library.favorites.some((item) => item.videoId === track.videoId),
     [library.favorites]
   );
+
+  const miniPlayerActions = useRef({
+    toggle: player.toggle,
+    previous: player.previous,
+    next: player.next,
+    toggleMute: () => player.setMuted(!player.muted),
+    seek: player.seek,
+    toggleFavorite: () => favorite(player.track),
+  });
+
+  useEffect(() => {
+    miniPlayerActions.current = {
+      toggle: player.toggle,
+      previous: player.previous,
+      next: player.next,
+      toggleMute: () => player.setMuted(!player.muted),
+      seek: player.seek,
+      toggleFavorite: () => favorite(player.track),
+    };
+  }, [player.toggle, player.previous, player.next, player.setMuted, player.muted, player.seek, player.track]);
 
   const playerChooseRef = useRef(player.choose);
   useEffect(() => {
@@ -559,6 +719,60 @@ export function TimeMachine() {
     [downloadedSongs, notify, syncDownloads]
   );
 
+  // Keep the always-on-top mini player synchronized with the real audio player.
+  useEffect(() => {
+    if (!isTauriEnvironment()) return;
+    emitMiniSnapshot();
+  }, [miniSnapshot, emitMiniSnapshot]);
+
+  useEffect(() => {
+    if (!isTauriEnvironment()) return;
+    let disposeCommand: (() => void) | undefined;
+    let disposeReady: (() => void) | undefined;
+
+    const connectMiniPlayer = async () => {
+      disposeCommand = await listen<MiniPlayerCommand>(
+        MINI_PLAYER_COMMAND_EVENT,
+        ({ payload }) => {
+          const actions = miniPlayerActions.current;
+          switch (payload.command) {
+            case "toggle":
+              void actions.toggle();
+              break;
+            case "previous":
+              actions.previous();
+              break;
+            case "next":
+              actions.next();
+              break;
+            case "toggleMute":
+              actions.toggleMute();
+              break;
+            case "seek":
+              void actions.seek(payload.position);
+              break;
+            case "toggleFavorite":
+              void actions.toggleFavorite();
+              break;
+            case "restore":
+              void hideMiniPlayerWindow().then(restoreAppWindow);
+              break;
+            case "hide":
+              void hideMiniPlayerWindow();
+              break;
+          }
+        }
+      );
+      disposeReady = await listen(MINI_PLAYER_READY_EVENT, emitMiniSnapshot);
+    };
+
+    void connectMiniPlayer();
+    return () => {
+      disposeCommand?.();
+      disposeReady?.();
+    };
+  }, [emitMiniSnapshot]);
+
   // Tauri window listeners & context menu lock
   useEffect(() => {
     if (!isTauriEnvironment()) return;
@@ -629,8 +843,12 @@ export function TimeMachine() {
 
   const handleMinimize = useCallback(async (e?: React.MouseEvent) => {
     e?.stopPropagation();
+    // Show the companion first. Once the main window is minimized, its WebView
+    // can be suspended before a second async window call gets a chance to run.
+    await showMiniPlayerWindow();
     await minimizeAppWindow();
-  }, []);
+    window.setTimeout(emitMiniSnapshot, 120);
+  }, [emitMiniSnapshot]);
 
   const handleToggleMaximize = useCallback(async (e?: React.MouseEvent) => {
     e?.stopPropagation();
@@ -706,7 +924,10 @@ export function TimeMachine() {
 
   useEffect(() => {
     const onFocus = () => {
-      if (isTauriEnvironment()) void syncDownloads(true);
+      if (isTauriEnvironment()) {
+        void syncDownloads(true);
+        void hideMiniPlayerWindow();
+      }
     };
     window.addEventListener("focus", onFocus);
     return () => {
@@ -931,6 +1152,8 @@ export function TimeMachine() {
               currentTheme={theme}
               onSelectTheme={handleSelectTheme}
               onNavigate={navigate}
+              crossfadeSeconds={player.crossfadeSeconds}
+              onSetCrossfadeSeconds={player.setCrossfadeSeconds}
             />
           )}
 
@@ -984,12 +1207,26 @@ export function TimeMachine() {
         onSetRepeat={player.setRepeat}
         onToggleFavorite={favorite}
         onDownload={triggerDownload}
-        onOpenDetails={setDetails}
-        onToggleQueue={() => setQueueOpen(!queueOpen)}
-      />
+         onOpenDetails={setDetails}
+         onToggleQueue={() => setQueueOpen(!queueOpen)}
+         similarTrackCount={similarTracks.length}
+         onPlaySimilar={playSimilarTracks}
+         sleepTimerActive={sleepTimer.isActive}
+         sleepTimerRemainingSeconds={sleepTimer.remainingSeconds}
+         sleepTimerDurations={sleepTimer.durations}
+         onStartSleepTimer={(minutes) => {
+           sleepTimer.start(minutes as (typeof sleepTimer.durations)[number]);
+           notify(`Sleep timer set for ${minutes} minutes.`);
+         }}
+         onCancelSleepTimer={() => {
+           sleepTimer.cancel();
+           notify("Sleep timer cancelled.");
+         }}
+       />
 
       {/* PURE HTML5 AUDIO ELEMENT */}
       <audio {...player.audioProps} preload="auto" style={{ display: "none" }} />
+      <audio {...player.transitionAudioProps} preload="auto" style={{ display: "none" }} />
 
       {player.error && (
         <div className="playback-toast-error" role="status">

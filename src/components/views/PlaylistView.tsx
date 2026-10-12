@@ -183,7 +183,7 @@ export function PlaylistView({
           <p>{activePlaylist.tagline}</p>
           <div className="playlist-specs">
             <span>
-              <strong>{activePlaylist.trackCount}</strong> recordings
+              <strong>{activePlaylist.trackCount}</strong> tracks
             </span>
             <i />
             <span>

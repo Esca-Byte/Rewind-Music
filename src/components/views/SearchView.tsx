@@ -66,7 +66,7 @@ export function SearchView({
       )}
 
       {searching ? (
-        <div className="search-skeletons" aria-label="Searching full recordings">
+        <div className="search-skeletons" aria-label="Searching music tracks">
           {Array.from({ length: 5 }, (_, i) => (
             <div key={i}>
               <i />

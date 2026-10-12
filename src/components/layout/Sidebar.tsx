@@ -118,7 +118,7 @@ export function Sidebar({
           <i />
         </div>
         <p>
-          Full recordings.
+          Full tracks.
           <br />
           <em>Never previews.</em>
         </p>

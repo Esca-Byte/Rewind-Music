@@ -138,6 +138,16 @@ export function AddPlaylistDialog({
     }
   }, []);
 
+  const handleCloseDialog = useCallback(() => {
+    cancelMatchingRef.current = true;
+    onClose();
+    setImportedPreview(null);
+    setSpotifyPreview(null);
+    setMatchingState(null);
+    setImportError("");
+    setSpotifyError("");
+  }, [onClose]);
+
   // Handle matching Spotify tracks to YouTube
   const handleMatchAndImportSpotify = useCallback(async () => {
     if (!spotifyPreview || !spotifyPreview.tracks.length) return;
@@ -242,22 +252,12 @@ export function AddPlaylistDialog({
       setSpotifyError("Could not match any tracks to playable YouTube audio. Please try again.");
       setMatchingState(null);
     }
-  }, [spotifyPreview, onCreatePlaylist]);
+  }, [spotifyPreview, onCreatePlaylist, handleCloseDialog]);
 
   const handleCancelMatching = () => {
     cancelMatchingRef.current = true;
     setMatchingState(null);
   };
-
-  const handleCloseDialog = useCallback(() => {
-    cancelMatchingRef.current = true;
-    onClose();
-    setImportedPreview(null);
-    setSpotifyPreview(null);
-    setMatchingState(null);
-    setImportError("");
-    setSpotifyError("");
-  }, [onClose]);
 
   const handlePasteClipboard = async (target: "youtube" | "spotify") => {
     try {
@@ -598,7 +598,7 @@ export function AddPlaylistDialog({
                 </button>
               </div>
               <span className="input-hint">
-                Paste any YouTube music playlist URL to import all its full recordings into Rewind.
+                Paste any YouTube music playlist URL to import all its tracks into Rewind.
               </span>
             </div>
           </form>

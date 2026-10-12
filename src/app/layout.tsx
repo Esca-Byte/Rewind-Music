@@ -9,7 +9,7 @@ const code = IBM_Plex_Mono({ subsets: ["latin"], variable: "--font-code", weight
 
 export const metadata: Metadata = {
   title: "Rewind — Your personal music time machine",
-  description: "Drag through the decades. Rediscover an album, play the full song, and revisit your own listening memories. Good music, any time.",
+  description: "Drag through the decades. Rediscover an album, play the full track, and revisit your own listening memories. Good music, any time.",
   referrer: "strict-origin-when-cross-origin",
 };
 

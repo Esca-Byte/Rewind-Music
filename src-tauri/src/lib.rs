@@ -1,6 +1,8 @@
 use std::fs;
 use std::path::PathBuf;
 
+use tauri::{Manager, PhysicalPosition, PhysicalSize, Position};
+
 #[cfg(windows)]
 use std::os::windows::process::CommandExt;
 
@@ -8,6 +10,215 @@ const EMBEDDED_YT_DLP: &[u8] = include_bytes!("../binaries/yt-dlp-x86_64-pc-wind
 
 #[cfg(windows)]
 const CREATE_NO_WINDOW: u32 = 0x08000000;
+
+const MINI_PLAYER_POSITION_FILE: &str = "mini-player-position.json";
+const MINI_PLAYER_DEFAULT_WIDTH: u32 = 340;
+const MINI_PLAYER_DEFAULT_HEIGHT: u32 = 400;
+const MINI_PLAYER_MARGIN: i64 = 24;
+static MINI_PLAYER_POSITION_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+#[derive(serde::Deserialize, serde::Serialize, Clone, Copy)]
+struct MiniPlayerPosition {
+    x: i32,
+    y: i32,
+}
+
+fn mini_player_position_path(app: &tauri::AppHandle) -> Option<PathBuf> {
+    app.path()
+        .app_config_dir()
+        .ok()
+        .map(|dir| dir.join(MINI_PLAYER_POSITION_FILE))
+}
+
+fn load_mini_player_position(app: &tauri::AppHandle) -> Option<MiniPlayerPosition> {
+    let _guard = MINI_PLAYER_POSITION_LOCK.lock().ok()?;
+    let path = mini_player_position_path(app)?;
+    let data = fs::read_to_string(path).ok()?;
+    serde_json::from_str::<MiniPlayerPosition>(&data).ok()
+}
+
+fn save_mini_player_position(app: &tauri::AppHandle, position: MiniPlayerPosition) {
+    let Ok(_guard) = MINI_PLAYER_POSITION_LOCK.lock() else {
+        return;
+    };
+    let Some(path) = mini_player_position_path(app) else {
+        return;
+    };
+
+    let Some(parent) = path.parent() else {
+        return;
+    };
+    if fs::create_dir_all(parent).is_err() {
+        return;
+    }
+
+    let Ok(data) = serde_json::to_string(&position) else {
+        return;
+    };
+    // Replace the complete JSON file so an interrupted write cannot truncate the
+    // last known position. Serialize native move events and command-side writes.
+    let temp_path = path.with_extension("json.tmp");
+    if fs::write(&temp_path, data).is_ok() {
+        if fs::rename(&temp_path, &path).is_err() {
+            // Windows does not replace an existing file during rename. Remove
+            // the old snapshot and retry so later moves continue to persist.
+            let _ = fs::remove_file(&path);
+            if let Err(error) = fs::rename(&temp_path, &path) {
+                log::warn!("Could not persist mini-player position: {error}");
+                let _ = fs::remove_file(temp_path);
+            }
+        }
+    }
+}
+
+fn mini_player_size(window: &tauri::WebviewWindow) -> PhysicalSize<u32> {
+    window.outer_size().unwrap_or_else(|_| {
+        PhysicalSize::new(MINI_PLAYER_DEFAULT_WIDTH, MINI_PLAYER_DEFAULT_HEIGHT)
+    })
+}
+
+fn position_fits_work_area(
+    position: MiniPlayerPosition,
+    size: PhysicalSize<u32>,
+    work_area_position: PhysicalPosition<i32>,
+    work_area_size: PhysicalSize<u32>,
+) -> bool {
+    let x = i64::from(position.x);
+    let y = i64::from(position.y);
+    let width = i64::from(size.width);
+    let height = i64::from(size.height);
+    let area_x = i64::from(work_area_position.x);
+    let area_y = i64::from(work_area_position.y);
+    let area_right = area_x + i64::from(work_area_size.width);
+    let area_bottom = area_y + i64::from(work_area_size.height);
+
+    x >= area_x && y >= area_y && x + width <= area_right && y + height <= area_bottom
+}
+
+fn saved_position_is_visible(
+    window: &tauri::WebviewWindow,
+    position: MiniPlayerPosition,
+    size: PhysicalSize<u32>,
+) -> bool {
+    window
+        .available_monitors()
+        .ok()
+        .map(|monitors| {
+            monitors.iter().any(|monitor| {
+                let work_area = monitor.work_area();
+                position_fits_work_area(position, size, work_area.position, work_area.size)
+            })
+        })
+        .unwrap_or(false)
+}
+
+fn default_mini_player_position(
+    window: &tauri::WebviewWindow,
+    size: PhysicalSize<u32>,
+) -> MiniPlayerPosition {
+    let monitor = window
+        .app_handle()
+        .get_webview_window("main")
+        .and_then(|main| main.current_monitor().ok().flatten())
+        .or_else(|| window.current_monitor().ok().flatten())
+        .or_else(|| window.primary_monitor().ok().flatten());
+
+    let Some(monitor) = monitor else {
+        return MiniPlayerPosition { x: 24, y: 24 };
+    };
+
+    let work_area = monitor.work_area();
+    bottom_right_position(size, work_area.position, work_area.size)
+}
+
+fn bottom_right_position(
+    size: PhysicalSize<u32>,
+    work_area_position: PhysicalPosition<i32>,
+    work_area_size: PhysicalSize<u32>,
+) -> MiniPlayerPosition {
+    let area_x = i64::from(work_area_position.x);
+    let area_y = i64::from(work_area_position.y);
+    let area_right = area_x + i64::from(work_area_size.width);
+    let area_bottom = area_y + i64::from(work_area_size.height);
+    let max_x = area_right - i64::from(size.width) - MINI_PLAYER_MARGIN;
+    let max_y = area_bottom - i64::from(size.height) - MINI_PLAYER_MARGIN;
+
+    MiniPlayerPosition {
+        x: max_x.max(area_x).min(i64::from(i32::MAX)) as i32,
+        y: max_y.max(area_y).min(i64::from(i32::MAX)) as i32,
+    }
+}
+
+fn apply_mini_player_position(app: &tauri::AppHandle, window: &tauri::WebviewWindow) {
+    let size = mini_player_size(window);
+    let position = load_mini_player_position(app)
+        .filter(|position| saved_position_is_visible(window, *position, size))
+        .unwrap_or_else(|| default_mini_player_position(window, size));
+
+    if window
+        .set_position(Position::Physical(PhysicalPosition::new(
+            position.x, position.y,
+        )))
+        .is_ok()
+    {
+        save_mini_player_position(app, position);
+    }
+}
+
+#[cfg(test)]
+mod mini_player_position_tests {
+    use super::*;
+
+    #[test]
+    fn default_uses_bottom_right_of_work_area() {
+        // A secondary monitor left of the primary, with a taskbar reserved below.
+        let origin = PhysicalPosition::new(-1920, 0);
+        let area = PhysicalSize::new(1920, 1040);
+        let size = PhysicalSize::new(340, 400);
+        let position = bottom_right_position(size, origin, area);
+        assert_eq!((position.x, position.y), (-364, 616));
+        assert!(position_fits_work_area(position, size, origin, area));
+    }
+
+    #[test]
+    fn rejects_disconnected_display_and_partially_hidden_positions() {
+        let origin = PhysicalPosition::new(0, 40);
+        let area = PhysicalSize::new(1920, 1040);
+        let size = PhysicalSize::new(340, 400);
+        for position in [
+            MiniPlayerPosition { x: -800, y: 100 },
+            MiniPlayerPosition { x: 1800, y: 100 },
+            MiniPlayerPosition { x: 100, y: 0 },
+            MiniPlayerPosition {
+                x: i32::MAX,
+                y: i32::MIN,
+            },
+        ] {
+            assert!(!position_fits_work_area(position, size, origin, area));
+        }
+    }
+
+    #[test]
+    fn small_work_area_keeps_top_left_controls_reachable() {
+        let position = bottom_right_position(
+            PhysicalSize::new(340, 400),
+            PhysicalPosition::new(0, 40),
+            PhysicalSize::new(300, 300),
+        );
+        assert_eq!((position.x, position.y), (0, 40));
+    }
+
+    #[test]
+    fn saved_coordinates_round_trip_and_invalid_json_is_rejected() {
+        let position = MiniPlayerPosition { x: -364, y: 616 };
+        let json = serde_json::to_string(&position).unwrap();
+        let restored: MiniPlayerPosition = serde_json::from_str(&json).unwrap();
+        assert_eq!((restored.x, restored.y), (position.x, position.y));
+        for invalid in ["{", r#"{"x":null,"y":0}"#, r#"{"x":1e100,"y":0}"#] {
+            assert!(serde_json::from_str::<MiniPlayerPosition>(invalid).is_err());
+        }
+    }
+}
 
 fn ensure_yt_dlp() -> Result<PathBuf, String> {
     // 1. Check if yt-dlp.exe is right next to the running executable
@@ -1060,7 +1271,22 @@ async fn open_downloads_folder() -> Result<(), String> {
 }
 
 #[tauri::command]
-fn app_minimize_window(window: tauri::Window) -> Result<(), String> {
+fn app_show_mini_player(app: tauri::AppHandle) -> Result<(), String> {
+    if let Some(mini) = app.get_webview_window("mini") {
+        apply_mini_player_position(&app, &mini);
+        mini.unminimize().map_err(|e| e.to_string())?;
+        mini.show().map_err(|e| e.to_string())?;
+        mini.set_always_on_top(true).map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
+#[tauri::command]
+fn app_minimize_window(window: tauri::Window, app: tauri::AppHandle) -> Result<(), String> {
+    // Show the companion before minimizing the main WebView. On Windows the
+    // minimized WebView may be suspended immediately, which can otherwise
+    // prevent the follow-up JavaScript show call from running.
+    app_show_mini_player(app)?;
     window.minimize().map_err(|e| e.to_string())
 }
 
@@ -1098,6 +1324,7 @@ pub fn run() {
             delete_downloaded_track,
             get_downloads_folder,
             open_downloads_folder,
+            app_show_mini_player,
             app_minimize_window,
             app_toggle_maximize_window,
             app_close_window,
@@ -1115,6 +1342,33 @@ pub fn run() {
                         .build(),
                 )?;
             }
+
+            if let Some(mini) = app.get_webview_window("mini") {
+                apply_mini_player_position(app.handle(), &mini);
+
+                let app_handle = app.handle().clone();
+                mini.on_window_event(move |event| {
+                    if let tauri::WindowEvent::Moved(position) = event {
+                        if let Some(mini) = app_handle.get_webview_window("mini") {
+                            let position = MiniPlayerPosition {
+                                x: position.x,
+                                y: position.y,
+                            };
+                            if mini.is_visible().unwrap_or(false)
+                                && !mini.is_minimized().unwrap_or(true)
+                                && saved_position_is_visible(
+                                    &mini,
+                                    position,
+                                    mini_player_size(&mini),
+                                )
+                            {
+                                save_mini_player_position(&app_handle, position);
+                            }
+                        }
+                    }
+                });
+            }
+
             Ok(())
         })
         .run(tauri::generate_context!())

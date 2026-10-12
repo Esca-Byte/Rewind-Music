@@ -81,12 +81,16 @@ interface SettingsViewProps {
   currentTheme: AppTheme;
   onSelectTheme: (theme: AppTheme) => void;
   onNavigate: (view: View) => void;
+  crossfadeSeconds: number;
+  onSetCrossfadeSeconds: (seconds: number) => void;
 }
 
 export function SettingsView({
   currentTheme,
   onSelectTheme,
   onNavigate,
+  crossfadeSeconds,
+  onSetCrossfadeSeconds,
 }: SettingsViewProps) {
   const currentThemeObj = APP_THEMES.find((t) => t.id === currentTheme) || APP_THEMES[0];
 
@@ -177,6 +181,31 @@ export function SettingsView({
         </div>
       </section>
 
+      <section className="settings-section playback-settings-section">
+        <div className="section-header">
+          <div>
+            <h2>
+              <Zap size={18} /> Playback Flow
+            </h2>
+            <p>Choose how Rewind moves from one track to the next. Gapless playback prebuffers when possible, but network conditions may still cause buffering.</p>
+          </div>
+        </div>
+        <div className="playback-flow-options" role="group" aria-label="Track transition mode">
+          {[0, 2, 4, 6, 8].map((seconds) => (
+            <button
+              key={seconds}
+              type="button"
+              className={`playback-flow-option ${crossfadeSeconds === seconds ? "active" : ""}`}
+              onClick={() => onSetCrossfadeSeconds(seconds)}
+              aria-pressed={crossfadeSeconds === seconds}
+            >
+              <strong>{seconds === 0 ? "Gapless" : `${seconds}s`}</strong>
+              <span>{seconds === 0 ? "Prebuffered transition; network may still buffer" : "Crossfade overlap"}</span>
+            </button>
+          ))}
+        </div>
+      </section>
+
       {/* 2. PROJECT REPOSITORY SECTION */}
       <section className="settings-section">
         <div className="section-header">
@@ -200,10 +229,10 @@ export function SettingsView({
                 <span className="github-tauri-pill">Tauri v2 Native</span>
               </div>
               <p>
-                Desktop music player streaming official YouTube full recordings with high-fidelity sound, custom playlists, and native offline downloads.
+                 Desktop music player streaming official YouTube music with high-fidelity sound, custom playlists, and native offline downloads.
               </p>
               <div className="repo-badges-deck">
-                <span><ShieldCheck size={13} /> 100% Full Recordings</span>
+               <span><ShieldCheck size={13} /> Official Music Tracks</span>
                 <span><Zap size={13} /> Fast Rust Native Backend</span>
                 <span><Palette size={13} /> 5 Curated Themes</span>
               </div>
@@ -273,7 +302,7 @@ export function SettingsView({
             <div className="suggestion-body">
               <strong>Personalize Your Atmosphere</strong>
               <p>
-                Switch between 5 bespoke themes—including Midnight Vinyl, Cyberpunk Neon, and Warm Analog—to tailor the player's visual atmosphere to your listening mood.
+                Switch between 5 bespoke themes—including Midnight Vinyl, Cyberpunk Neon, and Warm Analog—to tailor the player&apos;s visual atmosphere to your listening mood.
               </p>
             </div>
           </div>
@@ -283,8 +312,11 @@ export function SettingsView({
               <Keyboard size={20} />
             </div>
             <div className="suggestion-body">
-              <strong>Handy Keyboard Shortcuts</strong>
-              <div className="keyboard-shortcuts-list">
+                <strong>Keyboard & Media Controls</strong>
+                <p>
+                  Use Space to play or pause, and use your operating system&apos;s media keys when supported by the OS and WebView. Availability varies by environment.
+                </p>
+                <div className="keyboard-shortcuts-list">
                 <div>
                   <kbd>Space</kbd>
                   <span>Play or pause current playback</span>

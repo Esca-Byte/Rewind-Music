@@ -22,6 +22,26 @@
         "shadow": true,
         "transparent": false,
         "center": true
+      },
+      {
+        "label": "mini",
+        "title": "Rewind Mini Player",
+        "url": "mini/",
+        "width": 340,
+        "height": 400,
+        "minWidth": 300,
+        "minHeight": 360,
+        "maxWidth": 420,
+        "maxHeight": 480,
+        "decorations": false,
+        "resizable": false,
+        "visible": false,
+        "focus": false,
+        "alwaysOnTop": true,
+        "skipTaskbar": true,
+        "shadow": true,
+        "transparent": true,
+        "center": false
       }
     ],
     "security": {

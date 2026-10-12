@@ -36,7 +36,7 @@ export function TrackDetailsDialog({
       <div className="dialog-track">
         <span>
           <strong>{track.title}</strong>
-          <small>Full recording · {clock(track.duration)}</small>
+          <small>Full track · {clock(track.duration)}</small>
         </span>
         <button
           className="primary-button"

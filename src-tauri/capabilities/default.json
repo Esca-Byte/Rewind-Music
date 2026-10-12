@@ -3,7 +3,8 @@
   "identifier": "default",
   "description": "enables permissions for Rewind Music Player",
   "windows": [
-    "main"
+    "main",
+    "mini"
   ],
   "permissions": [
     "core:default",

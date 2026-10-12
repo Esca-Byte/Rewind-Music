@@ -21,7 +21,7 @@ export function AboutDialog({ isOpen, onClose }: AboutDialogProps) {
       <h2 className="dialog-title">Stream without limits.</h2>
       <div className="listening-guide">
         <p>
-          <strong>Official YouTube Recordings.</strong> Stream any track from your
+          <strong>Official YouTube Music.</strong> Stream any track from your
           curated playlists or search YouTube without 30-second preview restrictions.
         </p>
         <p>
