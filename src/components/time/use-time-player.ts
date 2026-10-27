@@ -42,7 +42,8 @@ interface PreloadEntry {
 export function useTimePlayer(
   initial: TimeTrack,
   onListen: (track: TimeTrack) => void,
-  onTrackError?: (track: TimeTrack, errorMsg: string) => void
+  onTrackError?: (track: TimeTrack, errorMsg: string) => void,
+  offlineOnly = false
 ) {
   const [track, setTrack] = useState(initial);
   const [queue, setQueue] = useState<TimeTrack[]>([initial]);
@@ -178,8 +179,11 @@ export function useTimePlayer(
         console.warn("Failed to convert local file source, falling back to YouTube:", err);
       }
     }
+    if (offlineOnly) {
+      throw new Error("Offline mode is enabled. Download this song before playing it.");
+    }
     return resolveAudioStreamUrl(targetTrack.videoId);
-  }, []);
+  }, [offlineOnly]);
 
   const selectNextTrack = useCallback((current: typeof values.current = values.current): TimeTrack | null => {
     if (current.queue.length < 2) return null;
@@ -601,6 +605,28 @@ export function useTimePlayer(
     });
   }, [cancelTransitionWork]);
 
+  const reorderQueue = useCallback((fromIndex: number, toIndex: number) => {
+    cancelTransitionWork(false);
+    setQueue((prevQueue) => {
+      if (
+        fromIndex < 0 ||
+        toIndex < 0 ||
+        fromIndex >= prevQueue.length ||
+        toIndex >= prevQueue.length ||
+        fromIndex === toIndex ||
+        sameTrack(prevQueue[fromIndex], values.current.track) ||
+        sameTrack(prevQueue[toIndex], values.current.track)
+      ) {
+        return prevQueue;
+      }
+      const nextQueue = [...prevQueue];
+      const [moved] = nextQueue.splice(fromIndex, 1);
+      nextQueue.splice(toIndex, 0, moved);
+      values.current.queue = nextQueue;
+      return nextQueue;
+    });
+  }, [cancelTransitionWork]);
+
   const seek = useCallback((seconds: number) => {
     const audio = audioRef.current;
     if (!audio || !Number.isFinite(seconds)) return;
@@ -771,6 +797,7 @@ export function useTimePlayer(
     addToQueue,
     removeFromQueue,
     clearQueue,
+    reorderQueue,
     setVolume,
     setMuted,
     setShuffle: setShuffleSafe,
@@ -779,5 +806,5 @@ export function useTimePlayer(
     retry,
     audioProps,
     transitionAudioProps,
-  }), [track, queue, status, position, duration, volume, muted, shuffle, repeat, crossfadeSeconds, error, choose, play, pause, toggle, next, previous, seek, playNext, addToQueue, removeFromQueue, clearQueue, setShuffleSafe, setRepeatSafe, setCrossfadeSeconds, retry, audioProps, transitionAudioProps]);
+  }), [track, queue, status, position, duration, volume, muted, shuffle, repeat, crossfadeSeconds, error, choose, play, pause, toggle, next, previous, seek, playNext, addToQueue, removeFromQueue, clearQueue, reorderQueue, setShuffleSafe, setRepeatSafe, setCrossfadeSeconds, retry, audioProps, transitionAudioProps]);
 }

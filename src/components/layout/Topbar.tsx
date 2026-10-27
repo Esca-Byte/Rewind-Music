@@ -42,6 +42,7 @@ const navLabels: Record<View, string> = {
   collection: "My Collection",
   memories: "History",
   downloads: "Downloads",
+  stats: "Listening Stats",
   search: "Search",
   settings: "Settings",
 };

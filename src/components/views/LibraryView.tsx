@@ -1,7 +1,7 @@
 "use client";
 
 import React from "react";
-import { ArrowRight, CalendarDays, Heart, History, Play, X } from "lucide-react";
+import { ArrowRight, CalendarDays, Heart, History, Play, Radio, X } from "lucide-react";
 import { TrackRow } from "@/components/track/TrackRow";
 import type { TimeTrack } from "@/lib/time/types";
 import type { View } from "@/types/music";
@@ -23,6 +23,7 @@ interface LibraryViewProps {
   onOpenAddToPlaylist: (track: TimeTrack) => void;
   onToggleFavorite: (track: TimeTrack) => void;
   onDownload: (track: TimeTrack) => void;
+  onPlayLikedRadio: () => void;
 }
 
 function localDay(value: string | Date | number) {
@@ -47,6 +48,7 @@ export function LibraryView({
   onOpenAddToPlaylist,
   onToggleFavorite,
   onDownload,
+  onPlayLikedRadio,
 }: LibraryViewProps) {
   if (mode === "collection") {
     return (
@@ -61,7 +63,12 @@ export function LibraryView({
               {favorites.length} saved songs ready to replay anytime.
             </p>
           </div>
-          <Heart size={28} strokeWidth={1.3} />
+          <div className="library-heading-actions">
+            <button className="quiet-button" onClick={onPlayLikedRadio} disabled={!favorites.length}>
+              <Radio size={14} /> Liked radio
+            </button>
+            <Heart size={28} strokeWidth={1.3} />
+          </div>
         </div>
 
         {favorites.length ? (

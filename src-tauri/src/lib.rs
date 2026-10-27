@@ -278,6 +278,12 @@ async fn resolve_stream_url(video_id: String) -> Result<String, String> {
             "ba/b",
             "-g",
             "--force-ipv4",
+            "--socket-timeout",
+            "8",
+            "--retries",
+            "1",
+            "--extractor-retries",
+            "1",
             "--extractor-args",
             "youtube:player_client=android,web",
             "--no-warnings",
@@ -309,6 +315,12 @@ async fn resolve_stream_url(video_id: String) -> Result<String, String> {
             "ba[ext=m4a]/ba/b",
             "-g",
             "--force-ipv4",
+            "--socket-timeout",
+            "8",
+            "--retries",
+            "1",
+            "--extractor-retries",
+            "1",
             "--no-warnings",
             "--no-playlist",
             &watch_url,
@@ -936,9 +948,19 @@ async fn match_spotify_tracks_batch(
 ) -> Result<Vec<Option<MatchedYouTubeTrack>>, String> {
     tauri::async_runtime::spawn_blocking(move || {
         let mut results = Vec::with_capacity(tracks.len());
-        for track in tracks {
-            let matched = match_track_to_youtube_sync(track.artist, track.title).ok();
-            results.push(matched);
+        let mut remaining = tracks.into_iter();
+        loop {
+            let batch: Vec<SpotifyTrackItem> = remaining.by_ref().take(6).collect();
+            if batch.is_empty() {
+                break;
+            }
+            let batch_results = std::thread::scope(|scope| {
+                let handles = batch.into_iter().map(|track| {
+                    scope.spawn(move || match_track_to_youtube_sync(track.artist, track.title).ok())
+                }).collect::<Vec<_>>();
+                handles.into_iter().map(|handle| handle.join().unwrap_or(None)).collect::<Vec<_>>()
+            });
+            results.extend(batch_results);
         }
         Ok(results)
     })

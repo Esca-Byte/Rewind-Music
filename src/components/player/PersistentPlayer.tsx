@@ -197,6 +197,10 @@ export function PersistentPlayer({
           </button>
         </div>
 
+        <div className={`player-visualizer ${playing ? "is-active" : ""}`} aria-label={playing ? "Audio visualizer active" : "Audio visualizer paused"}>
+          {[1, 2, 3, 4, 5, 6, 7].map((bar) => <i key={bar} style={{ "--bar-delay": `${bar * 0.08}s` } as React.CSSProperties} />)}
+        </div>
+
         <div className="player-timeline">
           <span>{clock(position)}</span>
           <input

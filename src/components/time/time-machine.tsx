@@ -7,14 +7,13 @@ import React, {
   useRef,
   useState,
 } from "react";
-import { Check, Rewind } from "lucide-react";
+import { Check, LoaderCircle, Rewind } from "lucide-react";
 
 import {
   playlists,
-  getPlaylist,
-  getAllPlaylistTracks,
+  type Playlist,
 } from "@/lib/time/playlists";
-import { type TimeTrack } from "@/lib/time/types";
+import { isTimeTrack, type TimeTrack } from "@/lib/time/types";
 import { getSimilarTracks } from "@/lib/time/similar-tracks";
 import { getTrackCoverUrl } from "@/components/time/album-object";
 import {
@@ -28,6 +27,8 @@ import {
   toggleMaximizeAppWindow,
   closeAppWindow,
   isAppWindowMaximized,
+  fetchSpotifyPlaylist,
+  matchSpotifyTracksBatch,
   showMiniPlayerWindow,
   hideMiniPlayerWindow,
   restoreAppWindow,
@@ -67,9 +68,11 @@ import { SearchView } from "@/components/views/SearchView";
 import { LibraryView } from "@/components/views/LibraryView";
 import { DownloadsView } from "@/components/views/DownloadsView";
 import { SettingsView } from "@/components/views/SettingsView";
+import { StatsView } from "@/components/views/StatsView";
 
 // Core hooks & plugins
 import { useListeningLibrary } from "./use-listening-library";
+import { useListeningStats } from "./use-listening-stats";
 import { useTimePlayer } from "./use-time-player";
 import { useMediaKeys } from "./use-media-keys";
 import { useSleepTimer } from "./use-sleep-timer";
@@ -81,6 +84,121 @@ function localDay(value: string | Date | number) {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(
     date.getDate()
   ).padStart(2, "0")}`;
+}
+
+const SPOTIFY_SYNC_CACHE_KEY = "rewind_spotify_sync_cache_v1";
+const SEARCH_CACHE_KEY = "rewind_search_cache_v1";
+
+type CachedSpotifyTrack = {
+  sourceId: string;
+  track: TimeTrack;
+};
+
+type CachedSpotifyPlaylist = {
+  spotifyId: string;
+  syncedAt: number;
+  title: string;
+  tagline: string;
+  cover: string;
+  tracks: CachedSpotifyTrack[];
+};
+
+type SpotifySyncState = {
+  active: boolean;
+  completed: number;
+  total: number;
+  current: string;
+  failed: number;
+};
+
+function readSpotifySyncCache(): Record<string, CachedSpotifyPlaylist> {
+  if (typeof window === "undefined") return {};
+  try {
+    const raw = localStorage.getItem(SPOTIFY_SYNC_CACHE_KEY);
+    const parsed = raw ? JSON.parse(raw) : {};
+    return parsed && typeof parsed === "object" ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+function writeSpotifySyncCache(cache: Record<string, CachedSpotifyPlaylist>) {
+  if (typeof window === "undefined") return;
+  try {
+    localStorage.setItem(SPOTIFY_SYNC_CACHE_KEY, JSON.stringify(cache));
+  } catch {
+    // Sync still works when browser storage is unavailable.
+  }
+}
+
+function readSearchCache(query: string): TimeTrack[] | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const parsed = JSON.parse(localStorage.getItem(SEARCH_CACHE_KEY) || "{}");
+    const entry = parsed?.[query];
+    if (entry?.savedAt && Date.now() - entry.savedAt < 1000 * 60 * 60 * 24 && Array.isArray(entry.tracks)) {
+      return entry.tracks;
+    }
+  } catch {
+    // Search caching is optional.
+  }
+  return null;
+}
+
+function writeSearchCache(query: string, tracks: TimeTrack[]) {
+  if (typeof window === "undefined") return;
+  try {
+    const parsed = JSON.parse(localStorage.getItem(SEARCH_CACHE_KEY) || "{}");
+    const entries = Object.entries({ ...parsed, [query]: { savedAt: Date.now(), tracks } })
+      .sort(([, left], [, right]) => Number((right as { savedAt?: number }).savedAt || 0) - Number((left as { savedAt?: number }).savedAt || 0))
+      .slice(0, 40);
+    localStorage.setItem(SEARCH_CACHE_KEY, JSON.stringify(Object.fromEntries(entries)));
+  } catch {
+    // Search caching is optional.
+  }
+}
+
+async function resolveSpotifyPlaylist(
+  sourceId: string,
+  genre: string,
+  cachedBySourceId = new Map<string, TimeTrack>()
+) {
+  const source = await fetchSpotifyPlaylist(sourceId);
+  const tracksToMatch = source.tracks.filter((item) => !cachedBySourceId.has(item.id));
+  const matches = tracksToMatch.length ? await matchSpotifyTracksBatch(tracksToMatch) : [];
+  let matchIndex = 0;
+  const cacheEntries: CachedSpotifyTrack[] = [];
+  const tracks = source.tracks.flatMap((item) => {
+    const cachedTrack = cachedBySourceId.get(item.id);
+    const match = cachedTrack ? null : matches[matchIndex++];
+    if (!cachedTrack && !match?.videoId) return [];
+    const track = cachedTrack
+      ? {
+          ...cachedTrack,
+          title: item.title,
+          artist: item.artist,
+          album: source.title,
+          genre,
+          duration: item.duration || cachedTrack.duration,
+        }
+      : {
+          id: `sp-${match!.videoId}`,
+          videoId: match!.videoId,
+          title: item.title,
+          artist: item.artist,
+          album: source.title,
+          genre,
+          year: new Date().getFullYear(),
+          duration: match!.duration || item.duration || 180,
+          cover: match!.cover || source.cover || `https://i.ytimg.com/vi/${match!.videoId}/hqdefault.jpg`,
+          source: "youtube" as const,
+        };
+    cacheEntries.push({ sourceId: item.id, track });
+    return [{
+      ...track,
+    }];
+  });
+  return { source, tracks, cacheEntries };
 }
 
 export function TimeMachine() {
@@ -100,12 +218,25 @@ export function TimeMachine() {
   const [syncingDownloads, setSyncingDownloads] = useState<boolean>(false);
   const [electronDownloadsPath, setElectronDownloadsPath] = useState<string>("");
   const [isElectron, setIsElectron] = useState<boolean>(false);
+  const [offlineMode, setOfflineMode] = useState<boolean>(() => {
+    if (typeof window === "undefined") return false;
+    return localStorage.getItem("rewind-offline-mode") === "true";
+  });
   const [selectedPlaylistId, setSelectedPlaylistId] = useState<string>("kpop-2026");
+  const [curatedPlaylists, setCuratedPlaylists] = useState<Playlist[]>(playlists);
+  const [spotifySync, setSpotifySync] = useState<SpotifySyncState>({
+    active: false,
+    completed: 0,
+    total: 0,
+    current: "",
+    failed: 0,
+  });
 
   // Custom User Playlists
   const [customPlaylists, setCustomPlaylists] = useState<UserPlaylist[]>([]);
   const [newPlaylistOpen, setNewPlaylistOpen] = useState(false);
   const [addToPlaylistTrack, setAddToPlaylistTrack] = useState<TimeTrack | null>(null);
+  const [refreshingPlaylistId, setRefreshingPlaylistId] = useState<string | null>(null);
 
   // Navigation history & window controls
   const [viewHistory, setViewHistory] = useState<View[]>(["explore"]);
@@ -135,9 +266,14 @@ export function TimeMachine() {
   );
 
   const library = useListeningLibrary();
-  const allTracks = useMemo(() => getAllPlaylistTracks(), []);
+  const listeningStats = useListeningStats();
+  const allTracks = useMemo(() => curatedPlaylists.flatMap((playlist) => playlist.tracks), [curatedPlaylists]);
   const initialTrack = playlists[0]?.tracks[0] || allTracks[0];
-  const player = useTimePlayer(initialTrack, library.listen, handleTrackError);
+  const listenAndRecord = useCallback((nextTrack: TimeTrack) => {
+    void library.listen(nextTrack);
+    listeningStats.record(nextTrack);
+  }, [library.listen, listeningStats.record]);
+  const player = useTimePlayer(initialTrack, listenAndRecord, handleTrackError, offlineMode);
   const playing = player.status === "playing";
 
   useMediaKeys({
@@ -223,6 +359,8 @@ export function TimeMachine() {
           : custom.youtubeId
           ? `https://www.youtube.com/playlist?list=${custom.youtubeId}`
           : "",
+        spotifyId: custom.spotifyId,
+        youtubeId: custom.youtubeId,
         totalDuration: custom.tracks.reduce(
           (sum, t) => sum + (t.duration || 180),
           0
@@ -232,9 +370,9 @@ export function TimeMachine() {
         isCustom: true,
       };
     }
-    const curated = getPlaylist(selectedPlaylistId) ?? playlists[0];
+    const curated = curatedPlaylists.find((playlist) => playlist.id === selectedPlaylistId) ?? curatedPlaylists[0];
     return { ...curated, isCustom: false };
-  }, [selectedPlaylistId, customPlaylists]);
+  }, [selectedPlaylistId, customPlaylists, curatedPlaylists]);
 
   const recommendationPool = useMemo(() => {
     const tracks = [
@@ -252,6 +390,110 @@ export function TimeMachine() {
       return true;
     });
   }, [activePlaylist.tracks, allTracks, customPlaylists, library.favorites, library.history]);
+
+  const personalizedTracks = useMemo(() => {
+    const genreWeights = new Map<string, number>();
+    const artistWeights = new Map<string, number>();
+    library.history.slice(0, 40).forEach((memory, index) => {
+      const weight = Math.max(1, 12 - index * 0.25);
+      genreWeights.set(memory.track.genre, (genreWeights.get(memory.track.genre) || 0) + weight);
+      artistWeights.set(memory.track.artist, (artistWeights.get(memory.track.artist) || 0) + weight);
+    });
+    const favoriteIds = new Set(library.favorites.map((track) => track.videoId));
+    return [...allTracks]
+      .map((track, index) => ({
+        track,
+        score:
+          (favoriteIds.has(track.videoId) ? 18 : 0) +
+          (genreWeights.get(track.genre) || 0) * 2 +
+          (artistWeights.get(track.artist) || 0) +
+          Math.max(0, 2 - index / Math.max(1, allTracks.length)),
+      }))
+      .sort((left, right) => right.score - left.score)
+      .slice(0, 12)
+      .map(({ track }) => track);
+  }, [allTracks, library.favorites, library.history]);
+
+  const syncDefaultPlaylists = useCallback(async () => {
+    if (!isTauriEnvironment()) return;
+    const remotePlaylists = playlists.filter((playlist) => playlist.spotifyId);
+    if (!remotePlaylists.length) return;
+
+    const cache = readSpotifySyncCache();
+    setCuratedPlaylists((current) => current.map((playlist) => {
+      const cached = cache[playlist.id];
+      if (!cached?.tracks?.length) return playlist;
+      const tracks = cached.tracks.map((entry) => entry.track);
+      return {
+        ...playlist,
+        title: cached.title || playlist.title,
+        tagline: cached.tagline || playlist.tagline,
+        cover: cached.cover || playlist.cover,
+        tracks,
+        trackCount: tracks.length,
+        totalDuration: tracks.reduce((sum, track) => sum + (track.duration || 0), 0),
+      };
+    }));
+
+    setSpotifySync({ active: true, completed: 0, total: remotePlaylists.length, current: "Starting…", failed: 0 });
+    let completed = 0;
+    let failed = 0;
+
+    await Promise.all(remotePlaylists.map(async (playlist) => {
+      setSpotifySync((state) => ({ ...state, current: `Syncing ${playlist.title}…` }));
+      try {
+        const cachedBySourceId = new Map(
+          (cache[playlist.id]?.tracks || []).map((entry) => [entry.sourceId, entry.track])
+        );
+        const resolved = await resolveSpotifyPlaylist(playlist.spotifyId!, playlist.title, cachedBySourceId);
+        cache[playlist.id] = {
+          spotifyId: playlist.spotifyId!,
+          syncedAt: Date.now(),
+          title: resolved.source.title,
+          tagline: resolved.source.description || playlist.tagline,
+          cover: resolved.source.cover || playlist.cover,
+          tracks: resolved.cacheEntries,
+        };
+        writeSpotifySyncCache(cache);
+        setCuratedPlaylists((current) => current.map((item) => item.id === playlist.id
+          ? {
+              ...item,
+              title: resolved.source.title,
+              tagline: resolved.source.description || item.tagline,
+              cover: resolved.source.cover || item.cover,
+              trackCount: resolved.tracks.length,
+              totalDuration: resolved.tracks.reduce((sum, track) => sum + (track.duration || 0), 0),
+              tracks: resolved.tracks,
+            }
+          : item));
+      } catch (error) {
+        failed += 1;
+        console.warn(`Could not sync ${playlist.title}:`, error);
+      } finally {
+        completed += 1;
+        setSpotifySync((state) => ({
+          ...state,
+          completed,
+          failed,
+          current: completed < remotePlaylists.length ? state.current : "Sync complete",
+        }));
+      }
+    }));
+
+    setSpotifySync((state) => ({ ...state, active: false, current: failed ? "Sync finished with some unavailable playlists" : "Sync complete" }));
+    if (failed < remotePlaylists.length) {
+      notify(`Auto-sync complete · ${remotePlaylists.length - failed} playlist${remotePlaylists.length - failed === 1 ? "" : "s"} updated`);
+    } else {
+      notify("Spotify playlists could not be synced");
+    }
+  }, [notify]);
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      void syncDefaultPlaylists();
+    }, 0);
+    return () => window.clearTimeout(timer);
+  }, [syncDefaultPlaylists]);
 
   const similarTracks = useMemo(
     () => getSimilarTracks(player.track, recommendationPool, 8),
@@ -302,6 +544,50 @@ export function TimeMachine() {
       /* empty */
     }
   }, []);
+
+  const handleExportPlaylists = useCallback(() => {
+    const payload = {
+      app: "Rewind Music Player",
+      version: 1,
+      exportedAt: new Date().toISOString(),
+      playlists: customPlaylists,
+    };
+    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = `rewind-playlists-${new Date().toISOString().slice(0, 10)}.json`;
+    anchor.click();
+    URL.revokeObjectURL(url);
+    notify(`Backed up ${customPlaylists.length} playlist${customPlaylists.length === 1 ? "" : "s"}`);
+  }, [customPlaylists, notify]);
+
+  const handleImportPlaylists = useCallback(async (file: File) => {
+    try {
+      const parsed = JSON.parse(await file.text());
+      const incoming = Array.isArray(parsed) ? parsed : parsed?.playlists;
+      if (!Array.isArray(incoming)) throw new Error("This file does not contain Rewind playlists.");
+
+      const valid = incoming.filter((playlist): playlist is UserPlaylist => {
+        return Boolean(
+          playlist &&
+            typeof playlist === "object" &&
+            typeof playlist.id === "string" &&
+            typeof playlist.title === "string" &&
+            Array.isArray(playlist.tracks) &&
+            playlist.tracks.every(isTimeTrack)
+        );
+      });
+      if (!valid.length) throw new Error("No valid playlists were found in that backup.");
+
+      const merged = new Map(customPlaylists.map((playlist) => [playlist.id, playlist]));
+      valid.slice(0, 100).forEach((playlist) => merged.set(playlist.id, playlist));
+      persistCustomPlaylists(Array.from(merged.values()));
+      notify(`Restored ${valid.length} playlist${valid.length === 1 ? "" : "s"}`);
+    } catch (error) {
+      notify(error instanceof Error ? error.message : "Could not restore that playlist backup.");
+    }
+  }, [customPlaylists, notify, persistCustomPlaylists]);
 
   const handleCreatePlaylist = useCallback(
     (
@@ -359,6 +645,33 @@ export function TimeMachine() {
     },
     [customPlaylists, persistCustomPlaylists, notify]
   );
+
+  const handleRefreshPlaylist = useCallback(async (playlistId: string) => {
+    const custom = customPlaylists.find((item) => item.id === playlistId && item.spotifyId);
+    const curated = curatedPlaylists.find((item) => item.id === playlistId && item.spotifyId);
+    const sourceId = custom?.spotifyId || curated?.spotifyId;
+    if (!sourceId) return;
+    setRefreshingPlaylistId(playlistId);
+    try {
+      const resolved = await resolveSpotifyPlaylist(sourceId, custom?.tracks[0]?.genre || curated?.title || "Spotify Import");
+      if (!resolved) return;
+      if (custom) {
+        const updated = customPlaylists.map((item) => item.id === playlistId
+          ? { ...item, title: resolved.source.title, description: resolved.source.description || item.description, cover: resolved.source.cover || item.cover, tracks: resolved.tracks }
+          : item);
+        persistCustomPlaylists(updated);
+      } else {
+        setCuratedPlaylists((current) => current.map((item) => item.id === playlistId
+          ? { ...item, title: resolved.source.title, tagline: resolved.source.description || item.tagline, cover: resolved.source.cover || item.cover, trackCount: resolved.tracks.length, totalDuration: resolved.tracks.reduce((sum, track) => sum + track.duration, 0), tracks: resolved.tracks }
+          : item));
+      }
+      notify(`Refreshed ${resolved.source.title} with ${resolved.tracks.length} playable tracks`);
+    } catch (error) {
+      notify(error instanceof Error ? error.message : "Could not refresh this Spotify playlist.");
+    } finally {
+      setRefreshingPlaylistId(null);
+    }
+  }, [customPlaylists, curatedPlaylists, notify, persistCustomPlaylists]);
 
   const handleDeletePlaylist = useCallback(
     (id: string) => {
@@ -426,6 +739,19 @@ export function TimeMachine() {
     },
     [player, notify]
   );
+
+  const playLikedRadio = useCallback(() => {
+    if (!library.favorites.length) {
+      notify("Save a few songs first to start your liked radio.");
+      return;
+    }
+    const favoriteIds = new Set(library.favorites.map((track) => track.videoId));
+    const extra = library.favorites.flatMap((track) => getSimilarTracks(track, recommendationPool, 3))
+      .filter((track, index, list) => !favoriteIds.has(track.videoId) && list.findIndex((item) => item.videoId === track.videoId) === index);
+    const radio = [...library.favorites, ...extra].sort(() => Math.random() - 0.5);
+    player.choose(radio[0], radio);
+    notify(`Liked radio started · ${radio.length} tracks`);
+  }, [library.favorites, notify, player, recommendationPool]);
 
   const shuffleAll = useCallback(() => {
     if (!allTracks.length) return;
@@ -533,7 +859,8 @@ export function TimeMachine() {
       setSearchError("");
       setView("search");
       try {
-        let songs = lookupCache.current.get(value.toLowerCase());
+        const cacheKey = value.toLowerCase();
+        let songs = lookupCache.current.get(cacheKey) || readSearchCache(cacheKey) || undefined;
         if (!songs) {
           if (isTauriEnvironment()) {
             try {
@@ -553,7 +880,8 @@ export function TimeMachine() {
                 t.artist.toLowerCase().includes(lower)
             );
           }
-          lookupCache.current.set(value.toLowerCase(), songs);
+          lookupCache.current.set(cacheKey, songs);
+          writeSearchCache(cacheKey, songs);
         }
         if (id !== searchId.current) return;
         setResults(songs);
@@ -982,6 +1310,7 @@ export function TimeMachine() {
         view={view}
         selectedPlaylistId={selectedPlaylistId}
         customPlaylists={customPlaylists}
+        curatedPlaylists={curatedPlaylists}
         favoritesCount={library.favorites.length}
         onNavigate={navigate}
         onOpenPlaylist={openPlaylist}
@@ -992,14 +1321,31 @@ export function TimeMachine() {
       {/* MAIN WORKSPACE VIEW ROUTING */}
       <div className="rewind-workspace">
         <main className="rewind-main">
+          {spotifySync.active && (
+            <div className="playlist-sync-banner" role="status" aria-live="polite">
+              <LoaderCircle size={16} className="spinner" />
+              <div>
+                <strong>Auto-syncing playlists</strong>
+                <span>{spotifySync.current} · {spotifySync.completed}/{spotifySync.total} complete</span>
+              </div>
+              <div className="playlist-sync-progress" aria-hidden="true">
+                <i style={{ width: `${spotifySync.total ? (spotifySync.completed / spotifySync.total) * 100 : 0}%` }} />
+              </div>
+            </div>
+          )}
           {view === "explore" && (
             <ExploreView
               allTracksCount={allTracks.length}
+              allTracks={allTracks}
+              curatedPlaylists={curatedPlaylists}
               history={library.history}
+              currentTrack={player.status !== "idle" ? player.track : undefined}
+              personalizedTracks={personalizedTracks}
               currentTrackVideoId={player.track?.videoId}
               isPlaying={playing}
               isSaved={isSaved}
               onNavigate={navigate}
+              onShuffleAll={shuffleAll}
               onOpenPlaylist={openPlaylist}
               onPlayPlaylist={playPlaylist}
               onChooseTrack={player.choose}
@@ -1022,6 +1368,7 @@ export function TimeMachine() {
               activePlaylist={activePlaylist}
               selectedPlaylistId={selectedPlaylistId}
               customPlaylists={customPlaylists}
+              curatedPlaylists={curatedPlaylists}
               currentTrackVideoId={player.track?.videoId}
               isPlaying={playing}
               isSaved={isSaved}
@@ -1043,6 +1390,10 @@ export function TimeMachine() {
               onToggleFavorite={favorite}
               onDownload={triggerDownload}
               onRemoveTrackFromPlaylist={handleRemoveTrackFromPlaylist}
+              onExportPlaylists={handleExportPlaylists}
+              onImportPlaylists={(file) => void handleImportPlaylists(file)}
+              onRefreshPlaylist={(id) => void handleRefreshPlaylist(id)}
+              refreshingPlaylistId={refreshingPlaylistId}
             />
           )}
 
@@ -1097,6 +1448,7 @@ export function TimeMachine() {
               onOpenAddToPlaylist={setAddToPlaylistTrack}
               onToggleFavorite={favorite}
               onDownload={triggerDownload}
+              onPlayLikedRadio={playLikedRadio}
             />
           )}
 
@@ -1124,6 +1476,7 @@ export function TimeMachine() {
               onOpenAddToPlaylist={setAddToPlaylistTrack}
               onToggleFavorite={favorite}
               onDownload={triggerDownload}
+              onPlayLikedRadio={playLikedRadio}
             />
           )}
 
@@ -1133,6 +1486,15 @@ export function TimeMachine() {
               syncingDownloads={syncingDownloads}
               electronDownloadsPath={electronDownloadsPath}
               isElectron={isElectron}
+              offlineMode={offlineMode}
+              onToggleOfflineMode={() => {
+                setOfflineMode((current) => {
+                  const next = !current;
+                  localStorage.setItem("rewind-offline-mode", String(next));
+                  notify(next ? "Offline mode enabled" : "Online playback enabled");
+                  return next;
+                });
+              }}
               currentTrackId={player.track?.id}
               currentTrackVideoId={player.track?.videoId}
               isPlaying={playing}
@@ -1144,6 +1506,13 @@ export function TimeMachine() {
               onClearAllDownloads={clearAllDownloads}
               onDeleteSingleDownload={deleteSingleDownload}
               onNotify={notify}
+            />
+          )}
+
+          {view === "stats" && (
+            <StatsView
+              stats={listeningStats.stats}
+              tracks={[...allTracks, ...customPlaylists.flatMap((playlist) => playlist.tracks)]}
             />
           )}
 
@@ -1251,6 +1620,10 @@ export function TimeMachine() {
             player.removeFromQueue(index);
             if (track) notify(`Removed "${track.title}" from queue`);
           }}
+          onReorderQueue={(fromIndex, toIndex) => {
+            player.reorderQueue(fromIndex, toIndex);
+            notify("Queue order updated");
+          }}
         />
       )}
 
@@ -1276,6 +1649,7 @@ export function TimeMachine() {
       {/* TRACK / ALBUM DETAILS DIALOG */}
       <TrackDetailsDialog
         track={details}
+        currentPosition={player.position}
         isSaved={details ? isSaved(details) : false}
         onClose={handleCloseDetails}
         onPlay={(track) => player.choose(track, [track])}

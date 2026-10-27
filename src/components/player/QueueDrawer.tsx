@@ -1,7 +1,7 @@
 "use client";
 
-import React from "react";
-import { AudioLines, X } from "lucide-react";
+import React, { useState } from "react";
+import { AudioLines, GripVertical, X } from "lucide-react";
 import { clock, type TimeTrack } from "@/lib/time/types";
 import { Artwork } from "@/components/time/album-object";
 
@@ -12,6 +12,7 @@ interface QueueDrawerProps {
   onClearQueue: () => void;
   onChooseTrack: (track: TimeTrack, queue: TimeTrack[]) => void;
   onRemoveFromQueue: (index: number) => void;
+  onReorderQueue: (fromIndex: number, toIndex: number) => void;
 }
 
 export function QueueDrawer({
@@ -21,7 +22,9 @@ export function QueueDrawer({
   onClearQueue,
   onChooseTrack,
   onRemoveFromQueue,
+  onReorderQueue,
 }: QueueDrawerProps) {
+  const [draggedIndex, setDraggedIndex] = useState<number | null>(null);
   return (
     <aside className="queue-window" aria-label="Play queue">
       <div className="section-header">
@@ -75,7 +78,19 @@ export function QueueDrawer({
                 <div
                   key={`${track.id}-${index}`}
                   className={`queue-record ${isCurrent ? "active" : ""}`}
+                  draggable={!isCurrent}
+                  onDragStart={() => setDraggedIndex(index)}
+                  onDragEnd={() => setDraggedIndex(null)}
+                  onDragOver={(event) => event.preventDefault()}
+                  onDrop={(event) => {
+                    event.preventDefault();
+                    if (draggedIndex !== null) onReorderQueue(draggedIndex, index);
+                    setDraggedIndex(null);
+                  }}
                 >
+                  <span className="queue-drag-handle" aria-hidden="true" title={isCurrent ? "Now playing" : "Drag to reorder"}>
+                    <GripVertical size={14} />
+                  </span>
                   <button
                     className="queue-item-main"
                     onClick={() => onChooseTrack(track, queue)}

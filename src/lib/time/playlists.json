@@ -3846,5 +3846,103 @@
         "source": "youtube"
       }
     ]
+  },
+  {
+    "id": "spotify-reels-hindi",
+    "youtubeId": "spotify-1saCqPsl314giXN0GLWgLj",
+    "spotifyId": "1saCqPsl314giXN0GLWgLj",
+    "title": "REELS TRENDING HINDI SONGS",
+    "tagline": "Trending Hindi hits for reels, shorts, and late-night discovery.",
+    "accent": "#f97316",
+    "icon": "Sparkles",
+    "url": "https://open.spotify.com/playlist/1saCqPsl314giXN0GLWgLj",
+    "cover": "https://images.unsplash.com/photo-1493225457124-a3eb161ffa5f?w=900&q=80",
+    "trackCount": 0,
+    "totalDuration": 0,
+    "tracks": []
+  },
+  {
+    "id": "spotify-indie-india",
+    "youtubeId": "spotify-37i9dQZF1DX5q67ZpWyRrZ",
+    "spotifyId": "37i9dQZF1DX5q67ZpWyRrZ",
+    "title": "Indie India",
+    "tagline": "The best of the Indian indie scene, from intimate songwriting to new discoveries.",
+    "accent": "#10b981",
+    "icon": "Sparkles",
+    "url": "https://open.spotify.com/playlist/37i9dQZF1DX5q67ZpWyRrZ",
+    "cover": "https://images.unsplash.com/photo-1493225457124-a3eb161ffa5f?w=900&q=80",
+    "trackCount": 0,
+    "totalDuration": 0,
+    "tracks": []
+  },
+  {
+    "id": "spotify-english-trending",
+    "youtubeId": "spotify-05tQuKpy2rvDLPnw8F1H1Y",
+    "spotifyId": "05tQuKpy2rvDLPnw8F1H1Y",
+    "title": "Instagram Trending English",
+    "tagline": "Viral English anthems, hidden gems, and high-energy tracks for your feed.",
+    "accent": "#8b5cf6",
+    "icon": "Sparkles",
+    "url": "https://open.spotify.com/playlist/05tQuKpy2rvDLPnw8F1H1Y",
+    "cover": "https://images.unsplash.com/photo-1493225457124-a3eb161ffa5f?w=900&q=80",
+    "trackCount": 0,
+    "totalDuration": 0,
+    "tracks": []
+  },
+  {
+    "id": "spotify-1am-hindi",
+    "youtubeId": "spotify-37i9dQZF1DWX3SoTqhs2rq",
+    "spotifyId": "37i9dQZF1DWX3SoTqhs2rq",
+    "title": "1 AM Feels Hindi",
+    "tagline": "Late-night Hindi melodies for quiet rooms, long drives, and softer hours.",
+    "accent": "#6366f1",
+    "icon": "Sparkles",
+    "url": "https://open.spotify.com/playlist/37i9dQZF1DWX3SoTqhs2rq",
+    "cover": "https://images.unsplash.com/photo-1493225457124-a3eb161ffa5f?w=900&q=80",
+    "trackCount": 0,
+    "totalDuration": 0,
+    "tracks": []
+  },
+  {
+    "id": "spotify-trending-punjabi",
+    "youtubeId": "spotify-37i9dQZF1DWZEYG45EmWYV",
+    "spotifyId": "37i9dQZF1DWZEYG45EmWYV",
+    "title": "Trending Now Punjabi",
+    "tagline": "The freshest Punjabi sounds, viral hooks, and artists making noise right now.",
+    "accent": "#eab308",
+    "icon": "Sparkles",
+    "url": "https://open.spotify.com/playlist/37i9dQZF1DWZEYG45EmWYV",
+    "cover": "https://images.unsplash.com/photo-1493225457124-a3eb161ffa5f?w=900&q=80",
+    "trackCount": 0,
+    "totalDuration": 0,
+    "tracks": []
+  },
+  {
+    "id": "spotify-jungkook-radio",
+    "youtubeId": "spotify-37i9dQZF1E4ytpt0Iot0bJ",
+    "spotifyId": "37i9dQZF1E4ytpt0Iot0bJ",
+    "title": "Jung Kook Radio",
+    "tagline": "Jung Kook, BTS, and the next wave of K-pop and global pop favorites.",
+    "accent": "#ec4899",
+    "icon": "Sparkles",
+    "url": "https://open.spotify.com/playlist/37i9dQZF1E4ytpt0Iot0bJ",
+    "cover": "https://images.unsplash.com/photo-1493225457124-a3eb161ffa5f?w=900&q=80",
+    "trackCount": 0,
+    "totalDuration": 0,
+    "tracks": []
+  },
+  {
+    "id": "spotify-jennie-radio",
+    "youtubeId": "spotify-37i9dQZF1E4lfxFP27cUvH",
+    "spotifyId": "37i9dQZF1E4lfxFP27cUvH",
+    "title": "JENNIE Radio",
+    "tagline": "JENNIE, BLACKPINK, and stylish pop from across the K-pop universe.",
+    "accent": "#06b6d4",
+    "icon": "Sparkles",
+    "url": "https://open.spotify.com/playlist/37i9dQZF1E4lfxFP27cUvH",
+    "cover": "https://images.unsplash.com/photo-1493225457124-a3eb161ffa5f?w=900&q=80",
+    "trackCount": 0,
+    "totalDuration": 0,
+    "tracks": []
   }
 ]

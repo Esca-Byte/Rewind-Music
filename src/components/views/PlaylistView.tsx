@@ -1,9 +1,12 @@
 "use client";
 
-import React, { type CSSProperties } from "react";
+import React, { useRef, type CSSProperties } from "react";
 import {
   ArrowRight,
   ArrowUpRight,
+  Download,
+  FileUp,
+  RefreshCw,
   ListMusic,
   Play,
   Plus,
@@ -14,7 +17,7 @@ import {
 import { TrackRow } from "@/components/track/TrackRow";
 import { YoutubeIcon } from "@/components/common/YoutubeIcon";
 import { SpotifyIcon } from "@/components/common/SpotifyIcon";
-import { playlists as curatedPlaylists } from "@/lib/time/playlists";
+import type { Playlist } from "@/lib/time/playlists";
 import type { TimeTrack } from "@/lib/time/types";
 import type { UserPlaylist, ActivePlaylistDisplay, View } from "@/types/music";
 
@@ -22,6 +25,7 @@ interface PlaylistViewProps {
   activePlaylist: ActivePlaylistDisplay;
   selectedPlaylistId: string;
   customPlaylists: UserPlaylist[];
+  curatedPlaylists: Playlist[];
   currentTrackVideoId?: string;
   isPlaying: boolean;
   isSaved: (track: TimeTrack) => boolean;
@@ -37,12 +41,17 @@ interface PlaylistViewProps {
   onToggleFavorite: (track: TimeTrack) => void;
   onDownload: (track: TimeTrack) => void;
   onRemoveTrackFromPlaylist: (playlistId: string, trackIndex: number) => void;
+  onExportPlaylists: () => void;
+  onImportPlaylists: (file: File) => void;
+  onRefreshPlaylist: (id: string) => void;
+  refreshingPlaylistId: string | null;
 }
 
 export function PlaylistView({
   activePlaylist,
   selectedPlaylistId,
   customPlaylists,
+  curatedPlaylists,
   currentTrackVideoId,
   isPlaying,
   isSaved,
@@ -58,7 +67,12 @@ export function PlaylistView({
   onToggleFavorite,
   onDownload,
   onRemoveTrackFromPlaylist,
+  onExportPlaylists,
+  onImportPlaylists,
+  onRefreshPlaylist,
+  refreshingPlaylistId,
 }: PlaylistViewProps) {
+  const importInputRef = useRef<HTMLInputElement>(null);
   return (
     <>
       <div className="page-intro">
@@ -72,12 +86,31 @@ export function PlaylistView({
           </p>
         </div>
         <div className="page-intro-actions">
+          <div className="playlist-header-actions">
           <button
             className="primary-button new-playlist-header-btn"
             onClick={onOpenNewPlaylistModal}
           >
             <Plus size={16} /> New Playlist
           </button>
+          <button className="quiet-button" onClick={onExportPlaylists} title="Export your custom playlists">
+            <Download size={15} /> Backup
+          </button>
+          <button className="quiet-button" onClick={() => importInputRef.current?.click()} title="Import a Rewind playlist backup">
+            <FileUp size={15} /> Restore
+          </button>
+          <input
+            ref={importInputRef}
+            type="file"
+            accept="application/json,.json"
+            hidden
+            onChange={(event) => {
+              const file = event.target.files?.[0];
+              if (file) onImportPlaylists(file);
+              event.target.value = "";
+            }}
+          />
+          </div>
         </div>
       </div>
 
@@ -236,6 +269,16 @@ export function PlaylistView({
                 onClick={() => onDeletePlaylist(activePlaylist.id)}
               >
                 <Trash2 size={15} /> Delete Playlist
+              </button>
+            )}
+            {activePlaylist.spotifyId && (
+              <button
+                className="quiet-button"
+                onClick={() => onRefreshPlaylist(activePlaylist.id)}
+                disabled={refreshingPlaylistId === activePlaylist.id}
+              >
+                <RefreshCw size={15} className={refreshingPlaylistId === activePlaylist.id ? "spin" : ""} />
+                {refreshingPlaylistId === activePlaylist.id ? "Refreshing…" : "Refresh from Spotify"}
               </button>
             )}
           </div>

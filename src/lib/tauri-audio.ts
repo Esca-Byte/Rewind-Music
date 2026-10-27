@@ -3,6 +3,54 @@ import type { TimeTrack } from "@/lib/time/types";
 import type { SpotifyPlaylistResult, SpotifyTrackItem, MatchedYouTubeTrack } from "@/types/music";
 
 const streamUrlCache = new Map<string, { url: string; expires: number }>();
+const streamPrefetches = new Set<string>();
+const streamResolutions = new Map<string, Promise<string>>();
+const STREAM_CACHE_STORAGE_KEY = "rewind_audio_stream_cache_v1";
+const STREAM_CACHE_TTL = 40 * 60 * 1000;
+
+function readPersistedStream(videoId: string): { url: string; expires: number } | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const raw = localStorage.getItem(STREAM_CACHE_STORAGE_KEY);
+    const parsed = raw ? JSON.parse(raw) as Record<string, { url?: string; expires?: number }> : {};
+    const entry = parsed[videoId];
+    if (entry?.url && typeof entry.expires === "number" && entry.expires > Date.now()) {
+      return { url: entry.url, expires: entry.expires };
+    }
+  } catch {
+    // Persistent stream caching is optional.
+  }
+  return null;
+}
+
+function persistStream(videoId: string, entry: { url: string; expires: number }) {
+  if (typeof window === "undefined") return;
+  try {
+    const raw = localStorage.getItem(STREAM_CACHE_STORAGE_KEY);
+    const parsed = raw ? JSON.parse(raw) as Record<string, { url: string; expires: number }> : {};
+    const activeEntries = Object.fromEntries(
+      Object.entries(parsed).filter(([, value]) => value.expires > Date.now())
+    );
+    localStorage.setItem(
+      STREAM_CACHE_STORAGE_KEY,
+      JSON.stringify({ ...activeEntries, [videoId]: entry })
+    );
+  } catch {
+    // Persistent stream caching is optional.
+  }
+}
+
+function removePersistedStream(videoId: string) {
+  if (typeof window === "undefined") return;
+  try {
+    const raw = localStorage.getItem(STREAM_CACHE_STORAGE_KEY);
+    const parsed = raw ? JSON.parse(raw) as Record<string, unknown> : {};
+    delete parsed[videoId];
+    localStorage.setItem(STREAM_CACHE_STORAGE_KEY, JSON.stringify(parsed));
+  } catch {
+    // Persistent stream caching is optional.
+  }
+}
 
 export function isTauriEnvironment(): boolean {
   return (
@@ -57,6 +105,7 @@ export async function restoreAppWindow(): Promise<void> {
 
 export function invalidateStreamCache(videoId: string): void {
   streamUrlCache.delete(videoId);
+  removePersistedStream(videoId);
 }
 
 /**
@@ -70,24 +119,54 @@ export async function resolveAudioStreamUrl(videoId: string, bypassCache = false
     if (cached && cached.expires > Date.now()) {
       return cached.url;
     }
-  }
-
-  if (isTauriEnvironment()) {
-    try {
-      const directUrl = await invoke<string>("resolve_stream_url", { videoId });
-      if (directUrl && directUrl.startsWith("http")) {
-        streamUrlCache.set(videoId, { url: directUrl, expires: Date.now() + 45 * 60 * 1000 });
-        return directUrl;
-      }
-      throw new Error("No playable audio stream URL returned");
-    } catch (err: any) {
-      streamUrlCache.delete(videoId);
-      console.error(`Native audio extraction failed for ${videoId}:`, err);
-      throw new Error(typeof err === "string" ? err : err?.message || "Failed to extract audio stream");
+    const persisted = readPersistedStream(videoId);
+    if (persisted) {
+      streamUrlCache.set(videoId, persisted);
+      return persisted.url;
     }
   }
 
-  throw new Error("Desktop audio streaming requires the Rewind desktop app.");
+  if (!bypassCache) {
+    const pending = streamResolutions.get(videoId);
+    if (pending) return pending;
+  }
+
+  const resolution = (async () => {
+    if (isTauriEnvironment()) {
+      try {
+        const directUrl = await invoke<string>("resolve_stream_url", { videoId });
+        if (directUrl && directUrl.startsWith("http")) {
+          const entry = { url: directUrl, expires: Date.now() + STREAM_CACHE_TTL };
+          streamUrlCache.set(videoId, entry);
+          persistStream(videoId, entry);
+          return directUrl;
+        }
+        throw new Error("No playable audio stream URL returned");
+      } catch (err: any) {
+        streamUrlCache.delete(videoId);
+        removePersistedStream(videoId);
+        console.error(`Native audio extraction failed for ${videoId}:`, err);
+        throw new Error(typeof err === "string" ? err : err?.message || "Failed to extract audio stream");
+      }
+    }
+
+    throw new Error("Desktop audio streaming requires the Rewind desktop app.");
+  })();
+  streamResolutions.set(videoId, resolution);
+  try {
+    return await resolution;
+  } finally {
+    if (streamResolutions.get(videoId) === resolution) streamResolutions.delete(videoId);
+  }
+}
+
+/** Starts stream extraction in the background so a subsequent click can play immediately. */
+export function prefetchAudioStreamUrl(videoId: string): void {
+  if (!videoId || streamPrefetches.has(videoId)) return;
+  streamPrefetches.add(videoId);
+  void resolveAudioStreamUrl(videoId)
+    .catch(() => undefined)
+    .finally(() => streamPrefetches.delete(videoId));
 }
 
 /**

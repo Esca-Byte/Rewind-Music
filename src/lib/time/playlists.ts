@@ -9,6 +9,7 @@ export type Playlist = {
   accent: string;
   icon: string;
   url: string;
+  spotifyId?: string;
   cover: string;
   trackCount: number;
   totalDuration: number;

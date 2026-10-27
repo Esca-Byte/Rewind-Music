@@ -3,6 +3,7 @@
 import React from "react";
 import {
   ArrowDownToLine,
+  BarChart3,
   Compass,
   Heart,
   History,
@@ -23,6 +24,7 @@ const navItems = [
   { id: "collection", label: "Collection", icon: Heart },
   { id: "memories", label: "History", icon: History },
   { id: "downloads", label: "Downloads", icon: ArrowDownToLine },
+  { id: "stats", label: "Stats", icon: BarChart3 },
 ] as const;
 
 export function MobileNav({ view, onNavigate, onFocusSearch }: MobileNavProps) {

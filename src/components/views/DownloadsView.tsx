@@ -11,6 +11,7 @@ import {
   Play,
   RefreshCw,
   Trash2,
+  WifiOff,
 } from "lucide-react";
 import type { TimeTrack } from "@/lib/time/types";
 import type { DownloadedSong, View } from "@/types/music";
@@ -25,6 +26,8 @@ interface DownloadsViewProps {
   syncingDownloads: boolean;
   electronDownloadsPath: string;
   isElectron: boolean;
+  offlineMode: boolean;
+  onToggleOfflineMode: () => void;
   currentTrackId?: string;
   currentTrackVideoId?: string;
   isPlaying: boolean;
@@ -43,6 +46,8 @@ export function DownloadsView({
   syncingDownloads,
   electronDownloadsPath,
   isElectron,
+  offlineMode,
+  onToggleOfflineMode,
   currentTrackId,
   currentTrackVideoId,
   isPlaying,
@@ -113,6 +118,14 @@ export function DownloadsView({
               title="Open folder in File Explorer"
             >
               <FolderOpen size={15} /> Open Folder
+            </button>
+            <button
+              type="button"
+              className={`offline-mode-button ${offlineMode ? "active" : ""}`}
+              onClick={onToggleOfflineMode}
+              title="Only play songs saved on this computer"
+            >
+              <WifiOff size={14} /> {offlineMode ? "Offline On" : "Offline Mode"}
             </button>
           </div>
         ) : (

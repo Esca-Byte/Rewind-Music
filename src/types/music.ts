@@ -53,7 +53,7 @@ export interface DownloadedSong {
   fileSize?: number;
 }
 
-export type View = "explore" | "playlists" | "collection" | "memories" | "downloads" | "search" | "settings";
+export type View = "explore" | "playlists" | "collection" | "memories" | "downloads" | "stats" | "search" | "settings";
 
 export type AppTheme = "analog" | "midnight" | "nordic" | "cyberpunk" | "sunset";
 
@@ -75,6 +75,8 @@ export interface ActivePlaylistDisplay {
   cover: string;
   accent?: string;
   url?: string;
+  spotifyId?: string;
+  youtubeId?: string;
   totalDuration: number;
   trackCount: number;
   tracks: TimeTrack[];

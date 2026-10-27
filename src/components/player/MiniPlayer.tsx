@@ -128,9 +128,9 @@ export function MiniPlayer() {
           <button
             type="button"
             className="mini-player-window-button close-btn"
-            onClick={() => sendCommand({ command: "restore" })}
-            aria-label="Restore full Rewind player"
-            title="Restore full player"
+             onClick={() => sendCommand({ command: "hide" })}
+             aria-label="Hide mini player"
+             title="Hide mini player"
           >
             <X size={13} />
           </button>

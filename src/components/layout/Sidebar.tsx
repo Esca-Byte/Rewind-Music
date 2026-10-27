@@ -3,6 +3,7 @@
 import React from "react";
 import {
   ArrowDownToLine,
+  BarChart3,
   ChevronRight,
   Compass,
   Heart,
@@ -12,12 +13,13 @@ import {
   Settings,
 } from "lucide-react";
 import type { View, UserPlaylist } from "@/types/music";
-import { playlists as curatedPlaylists } from "@/lib/time/playlists";
+import type { Playlist } from "@/lib/time/playlists";
 
 interface SidebarProps {
   view: View;
   selectedPlaylistId: string;
   customPlaylists: UserPlaylist[];
+  curatedPlaylists: Playlist[];
   favoritesCount: number;
   onNavigate: (view: View) => void;
   onOpenPlaylist: (id: string) => void;
@@ -31,12 +33,14 @@ const navItems = [
   { id: "collection", label: "My collection", icon: Heart },
   { id: "memories", label: "History", icon: History },
   { id: "downloads", label: "Downloads", icon: ArrowDownToLine },
+  { id: "stats", label: "Stats", icon: BarChart3 },
 ] as const;
 
 export function Sidebar({
   view,
   selectedPlaylistId,
   customPlaylists,
+  curatedPlaylists,
   favoritesCount,
   onNavigate,
   onOpenPlaylist,

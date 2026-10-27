@@ -4,6 +4,7 @@ import React from "react";
 import { AudioLines, Play, ListPlus, Plus, FolderPlus, Heart, ArrowDownToLine, Trash2 } from "lucide-react";
 import { clock, type TimeTrack } from "@/lib/time/types";
 import { Artwork } from "@/components/time/album-object";
+import { prefetchAudioStreamUrl } from "@/lib/tauri-audio";
 
 interface TrackRowProps {
   track: TimeTrack;
@@ -46,6 +47,7 @@ export function TrackRow({
     <div
       className={`recording-row ${isPlayingCurrent ? "current" : ""}`}
       key={`${track.id}-${suffix ?? index}`}
+      onPointerEnter={() => prefetchAudioStreamUrl(track.videoId)}
     >
       <button
         className="row-number"
