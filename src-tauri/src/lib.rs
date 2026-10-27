@@ -1391,6 +1391,17 @@ pub fn run() {
                 });
             }
 
+            if let Some(main) = app.get_webview_window("main") {
+                let app_handle = app.handle().clone();
+                main.on_window_event(move |event| {
+                    if matches!(event, tauri::WindowEvent::Focused(true)) {
+                        if let Some(mini) = app_handle.get_webview_window("mini") {
+                            let _ = mini.hide();
+                        }
+                    }
+                });
+            }
+
             Ok(())
         })
         .run(tauri::generate_context!())

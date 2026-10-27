@@ -31,7 +31,6 @@ import {
   matchSpotifyTracksBatch,
   showMiniPlayerWindow,
   hideMiniPlayerWindow,
-  restoreAppWindow,
 } from "@/lib/tauri-audio";
 import { emit, listen } from "@tauri-apps/api/event";
 import {
@@ -1081,9 +1080,6 @@ export function TimeMachine() {
               break;
             case "toggleFavorite":
               void actions.toggleFavorite();
-              break;
-            case "restore":
-              void hideMiniPlayerWindow().then(restoreAppWindow);
               break;
             case "hide":
               void hideMiniPlayerWindow();

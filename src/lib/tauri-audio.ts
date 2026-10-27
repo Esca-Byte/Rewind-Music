@@ -87,22 +87,6 @@ export async function hideMiniPlayerWindow(): Promise<void> {
   }
 }
 
-/** Restores and focuses the full player window from the mini player. */
-export async function restoreAppWindow(): Promise<void> {
-  if (!isTauriEnvironment()) return;
-  try {
-    const { WebviewWindow } = await import("@tauri-apps/api/webviewWindow");
-    const main = await WebviewWindow.getByLabel("main");
-    if (main) {
-      await main.unminimize();
-      await main.show();
-      await main.setFocus();
-    }
-  } catch (e) {
-    console.warn("Failed to restore main window:", e);
-  }
-}
-
 export function invalidateStreamCache(videoId: string): void {
   streamUrlCache.delete(videoId);
   removePersistedStream(videoId);
