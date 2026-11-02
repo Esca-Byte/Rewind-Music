@@ -120,7 +120,10 @@ export function createAudioTransitionController(initialVolume = 0.85, initialMut
           incomingVolume: incoming.volume,
           incomingMuted: incoming.muted,
           durationSeconds,
-          progress: durationSeconds === 0 ? 1 : 0,
+          // Gapless mode must leave the outgoing track at full volume until its
+          // ended event. Setting this to 1 here would create silence while the
+          // incoming track is still waiting to start.
+          progress: 0,
           timer: null,
           outgoingEnded: outgoing.ended,
           incomingReady: incoming.readyState >= 3,
@@ -152,6 +155,10 @@ export function createAudioTransitionController(initialVolume = 0.85, initialMut
         const maybeStart = () => {
           if (active !== transition || transition.incomingStarted || !transition.incomingReady) return;
           if (durationSeconds === 0 && !transition.outgoingEnded) return;
+          if (durationSeconds === 0) {
+            transition.progress = 1;
+            applyLevels(transition);
+          }
           transition.incomingStarted = true;
           let playResult: Promise<void>;
           try {

@@ -2,8 +2,9 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 
-export const SLEEP_TIMER_MINUTES = [15, 30, 45, 60] as const;
+export const SLEEP_TIMER_MINUTES = [5, 10, 15, 30, 45, 60, 90] as const;
 export type SleepTimerMinutes = (typeof SLEEP_TIMER_MINUTES)[number];
+const SLEEP_TIMER_STORAGE_KEY = "rewind-sleep-timer";
 
 /** A wall-clock timer: playback is stopped by the caller's onExpire callback. */
 export function useSleepTimer(onExpire: () => void) {
@@ -32,6 +33,11 @@ export function useSleepTimer(onExpire: () => void) {
     setMinutes(null);
     setEndsAt(null);
     setRemainingSeconds(0);
+    try {
+      localStorage.removeItem(SLEEP_TIMER_STORAGE_KEY);
+    } catch {
+      /* localStorage is optional */
+    }
   }, [clearScheduled]);
 
   const tick = useCallback(() => {
@@ -49,24 +55,55 @@ export function useSleepTimer(onExpire: () => void) {
     setMinutes(null);
     setEndsAt(null);
     setRemainingSeconds(0);
+    try {
+      localStorage.removeItem(SLEEP_TIMER_STORAGE_KEY);
+    } catch {
+      /* localStorage is optional */
+    }
     onExpireRef.current();
   }, [clearScheduled]);
 
-  const start = useCallback((duration: SleepTimerMinutes) => {
-    if (!SLEEP_TIMER_MINUTES.includes(duration)) {
-      throw new RangeError("Sleep timer duration must be 15, 30, 45, or 60 minutes");
-    }
+  const schedule = useCallback((target: number, duration: SleepTimerMinutes) => {
     clearScheduled();
-    const target = Date.now() + duration * 60_000;
     deadline.current = target;
     setMinutes(duration);
     setEndsAt(target);
-    setRemainingSeconds(duration * 60);
-    timeout.current = setTimeout(tick, duration * 60_000);
-    // Recompute from the deadline instead of decrementing to remain accurate
-    // after throttling, suspension, or a delayed browser timer.
+    setRemainingSeconds(Math.max(0, Math.ceil((target - Date.now()) / 1000)));
+    timeout.current = setTimeout(tick, Math.max(0, target - Date.now()));
     interval.current = setInterval(tick, 1000);
   }, [clearScheduled, tick]);
+
+  const start = useCallback((duration: SleepTimerMinutes) => {
+    if (!SLEEP_TIMER_MINUTES.includes(duration)) {
+      throw new RangeError("Unsupported sleep timer duration");
+    }
+    const target = Date.now() + duration * 60_000;
+    schedule(target, duration);
+    try {
+      localStorage.setItem(SLEEP_TIMER_STORAGE_KEY, JSON.stringify({ target, duration }));
+    } catch {
+      /* localStorage is optional */
+    }
+  }, [schedule]);
+
+  useEffect(() => {
+    let restoreTimer: ReturnType<typeof setTimeout> | null = null;
+    try {
+      const parsed = JSON.parse(localStorage.getItem(SLEEP_TIMER_STORAGE_KEY) || "null");
+      const target = Number(parsed?.target);
+      const duration = Number(parsed?.duration) as SleepTimerMinutes;
+      if (target > Date.now() && SLEEP_TIMER_MINUTES.includes(duration)) {
+        restoreTimer = setTimeout(() => schedule(target, duration), 0);
+      } else if (parsed) {
+        localStorage.removeItem(SLEEP_TIMER_STORAGE_KEY);
+      }
+    } catch {
+      /* A stale or unavailable timer should not interrupt startup. */
+    }
+    return () => {
+      if (restoreTimer !== null) clearTimeout(restoreTimer);
+    };
+  }, [schedule]);
 
   useEffect(() => {
     const handleFocus = () => tick();

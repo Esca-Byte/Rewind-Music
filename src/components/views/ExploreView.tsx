@@ -3,10 +3,6 @@
 import React from "react";
 import {
   ArrowRight,
-  CalendarDays,
-  ChevronRight,
-  Clock3,
-  Headphones,
   Play,
   Shuffle,
   Sparkles,
@@ -27,7 +23,6 @@ interface ExploreViewProps {
   isPlaying: boolean;
   isSaved: (track: TimeTrack) => boolean;
   onNavigate: (view: View) => void;
-  onShuffleAll: () => void;
   onOpenPlaylist: (id: string) => void;
   onPlayPlaylist: (pl: { title: string; tracks: TimeTrack[] }, shuffle?: boolean) => void;
   onChooseTrack: (track: TimeTrack, list: TimeTrack[]) => void;
@@ -49,7 +44,6 @@ export function ExploreView({
   isPlaying,
   isSaved,
   onNavigate,
-  onShuffleAll,
   onOpenPlaylist,
   onPlayPlaylist,
   onChooseTrack,
@@ -141,30 +135,8 @@ export function ExploreView({
               </button>
             </div>
           </div>
-          <div className="home-hero-stamp" aria-hidden="true">
-            <Headphones size={18} />
-            <span>LISTEN<br />DEEPER</span>
-          </div>
         </section>
       )}
-
-      <section className="home-quick-actions" aria-label="Quick actions">
-        <button className="home-quick-action home-quick-action-primary" onClick={onShuffleAll}>
-          <span className="home-quick-icon"><Shuffle size={18} /></span>
-          <span><strong>Surprise me</strong><small>Shuffle the whole library</small></span>
-          <ChevronRight size={16} />
-        </button>
-        <button className="home-quick-action" onClick={() => onNavigate("collection")}>
-          <span className="home-quick-icon"><Sparkles size={18} /></span>
-          <span><strong>My collection</strong><small>Return to saved favorites</small></span>
-          <ChevronRight size={16} />
-        </button>
-        <button className="home-quick-action" onClick={() => onNavigate("playlists")}>
-          <span className="home-quick-icon"><Clock3 size={18} /></span>
-          <span><strong>Browse the shelf</strong><small>Explore every curated mix</small></span>
-          <ChevronRight size={16} />
-        </button>
-      </section>
 
       <section className="home-personalized">
         <div className="section-header">
@@ -213,6 +185,40 @@ export function ExploreView({
           <button className="home-now-play" onClick={() => onChooseTrack(currentTrack, [currentTrack])}>
             <Play size={15} fill="currentColor" /> Play again
           </button>
+        </section>
+      )}
+
+      {history.length > 0 && (
+        <section className="home-continue-section">
+          <div className="section-header">
+            <div>
+              <h2>Continue listening <span className="small-count">{history.length}</span></h2>
+              <p>Pick up where your listening trail left off.</p>
+            </div>
+            <button className="text-link" onClick={() => onNavigate("memories")}>
+              View history <ArrowRight size={15} />
+            </button>
+          </div>
+          <div className="home-continue-grid">
+            {history.slice(0, 6).map((memory) => (
+              <button
+                type="button"
+                className="home-continue-card"
+                key={memory.id}
+                onClick={() => onChooseTrack(memory.track, history.map((item) => item.track))}
+                title={`Play ${memory.track.title}`}
+              >
+                <span className="home-continue-artwork">
+                  <img src={memory.track.cover} alt="" loading="lazy" />
+                  <span><Play size={14} fill="currentColor" /></span>
+                </span>
+                <span className="home-continue-copy">
+                  <strong>{memory.track.title}</strong>
+                  <small>{memory.track.artist}</small>
+                </span>
+              </button>
+            ))}
+          </div>
         </section>
       )}
 
@@ -327,50 +333,6 @@ export function ExploreView({
         </div>
       )}
 
-      {/* LISTENING HISTORY PREVIEW */}
-      <section className="memory-preview">
-        <div className="section-header">
-          <div>
-            <h2>{history.length ? `Because you listened to ${history[0].track.artist}` : "Your Listening History"}</h2>
-            <p>{history.length ? "A few more songs from your recent listening trail." : "Songs you’ve played recently in this browser."}</p>
-          </div>
-          <button className="text-link" onClick={() => onNavigate("memories")}>
-            View full history <ArrowRight size={15} />
-          </button>
-        </div>
-        {history.length ? (
-          <div className="recording-list">
-            {history.slice(0, 4).map((memory, i) => (
-              <TrackRow
-                key={`${memory.track.id}-${memory.id}-${i}`}
-                track={memory.track}
-                index={i}
-                list={history.map((m) => m.track)}
-                suffix={memory.id}
-                isPlayingCurrent={currentTrackVideoId === memory.track.videoId}
-                isPlaying={isPlaying}
-                isSaved={isSaved(memory.track)}
-                onChoose={onChooseTrack}
-                onPlayNext={onPlayNext}
-                onAddToQueue={onAddToQueue}
-                onOpenAddToPlaylist={onOpenAddToPlaylist}
-                onToggleFavorite={onToggleFavorite}
-                onDownload={onDownload}
-              />
-            ))}
-          </div>
-        ) : (
-          <div className="memory-invitation">
-            <span className="memory-date-icon">
-              <CalendarDays size={24} />
-            </span>
-            <div>
-              <strong>Your listening history starts here.</strong>
-              <p>Press play on any song and we’ll keep track of your memories.</p>
-            </div>
-          </div>
-        )}
-      </section>
     </>
   );
 }

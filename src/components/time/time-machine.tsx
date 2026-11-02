@@ -7,7 +7,7 @@ import React, {
   useRef,
   useState,
 } from "react";
-import { Check, LoaderCircle, Rewind } from "lucide-react";
+import { Check, LoaderCircle, Rewind, WifiOff } from "lucide-react";
 
 import {
   playlists,
@@ -75,6 +75,8 @@ import { useListeningStats } from "./use-listening-stats";
 import { useTimePlayer } from "./use-time-player";
 import { useMediaKeys } from "./use-media-keys";
 import { useSleepTimer } from "./use-sleep-timer";
+import { useAppUpdates } from "./use-app-updates";
+import { openUpdateDownload } from "@/lib/app-updates";
 
 export type { UserPlaylist, DownloadedSong };
 
@@ -300,6 +302,7 @@ export function TimeMachine() {
     notify("Sleep timer ended. Playback paused.");
   };
   const sleepTimer = useSleepTimer(handleSleepTimerExpired);
+  const appUpdates = useAppUpdates();
 
   const isCurrentTrackSaved = useMemo(
     () => library.favorites.some((item) => item.videoId === player.track.videoId),
@@ -375,11 +378,11 @@ export function TimeMachine() {
 
   const recommendationPool = useMemo(() => {
     const tracks = [
+      ...library.favorites,
+      ...library.history.map((memory) => memory.track),
       ...allTracks,
       ...activePlaylist.tracks,
       ...customPlaylists.flatMap((playlist) => playlist.tracks),
-      ...library.favorites,
-      ...library.history.map((memory) => memory.track),
     ];
     const seen = new Set<string>();
     return tracks.filter((candidate) => {
@@ -521,19 +524,21 @@ export function TimeMachine() {
   }, [notify, player, similarTracks]);
 
   useEffect(() => {
-    if (
-      !playing ||
-      !player.duration ||
-      player.position < Math.max(1, player.duration - 12) ||
-      player.queue.length > 1 ||
-      smartQueueSeed.current === player.track.id
-    ) {
+    if (!playing || player.queue.length - 1 >= 3 || smartQueueSeed.current === player.track.id) {
       return;
     }
     smartQueueSeed.current = player.track.id;
-    const additions = getSimilarTracks(player.track, recommendationPool, 5);
+    const queuedKeys = new Set(player.queue.flatMap((candidate) => [candidate.id, candidate.videoId]));
+    const additions = getSimilarTracks(player.track, recommendationPool, 8).filter(
+      (candidate) => !queuedKeys.has(candidate.id) && !queuedKeys.has(candidate.videoId)
+    ).slice(0, 5);
     additions.forEach((candidate) => player.addToQueue(candidate));
-  }, [player, playing, recommendationPool]);
+    if (additions.length) {
+      window.setTimeout(() => {
+        notify(`Smart queue added ${additions.length} track${additions.length === 1 ? "" : "s"} for you.`);
+      }, 0);
+    }
+  }, [notify, player, playing, recommendationPool]);
 
   const persistCustomPlaylists = useCallback((next: UserPlaylist[]) => {
     setCustomPlaylists(next);
@@ -938,6 +943,7 @@ export function TimeMachine() {
           filePath: t.filePath,
           fileName: t.fileName,
           fileSize: t.fileSize,
+          downloadStatus: "downloaded",
         }));
         setDownloadedSongs(songs);
         try {
@@ -965,6 +971,10 @@ export function TimeMachine() {
 
   const triggerDownload = (track: TimeTrack) => {
     if (!track.videoId) return;
+    if (downloadedSongs.some((song) => song.videoId === track.videoId && song.downloadStatus === "downloading")) {
+      notify(`"${track.title}" is already downloading.`);
+      return;
+    }
 
     const newEntry: DownloadedSong = {
       id: track.id || track.videoId,
@@ -977,6 +987,7 @@ export function TimeMachine() {
       downloadedAt: Date.now(),
       duration: track.duration,
       cover: track.cover,
+      downloadStatus: "downloading",
     };
 
     setDownloadedSongs((prev) => {
@@ -1010,9 +1021,25 @@ export function TimeMachine() {
           notify(`Downloaded "${track.title}" to ${targetFolder}`);
           void syncDownloads(true);
         } else {
+          setDownloadedSongs((current) => {
+            const next = current.map((song) =>
+              song.videoId === track.videoId ? { ...song, downloadStatus: "error" as const } : song
+            );
+            try {
+              localStorage.setItem("rewind-downloaded-songs", JSON.stringify(next));
+            } catch {
+              /* empty */
+            }
+            return next;
+          });
           notify(`Download failed: ${res.error || "Unknown error"}`);
         }
       });
+    } else {
+      setDownloadedSongs((current) => current.map((song) =>
+        song.videoId === track.videoId ? { ...song, downloadStatus: "error" as const } : song
+      ));
+      notify("Offline downloads require the Rewind desktop app.");
     }
   };
 
@@ -1224,27 +1251,76 @@ export function TimeMachine() {
     playerToggleRef.current = player.toggle;
   }, [player.toggle]);
 
-  // Spacebar play/pause shortcut
+  const playerShortcutRef = useRef({
+    next: player.next,
+    previous: player.previous,
+    setMuted: player.setMuted,
+    muted: player.muted,
+    setShuffle: player.setShuffle,
+    shuffle: player.shuffle,
+    setRepeat: player.setRepeat,
+    repeat: player.repeat,
+  });
+  useEffect(() => {
+    playerShortcutRef.current = {
+      next: player.next,
+      previous: player.previous,
+      setMuted: player.setMuted,
+      muted: player.muted,
+      setShuffle: player.setShuffle,
+      shuffle: player.shuffle,
+      setRepeat: player.setRepeat,
+      repeat: player.repeat,
+    };
+  }, [player.next, player.previous, player.setMuted, player.muted, player.setShuffle, player.shuffle, player.setRepeat, player.repeat]);
+
+  // Desktop-style playback shortcuts. Text fields and dialogs retain normal typing.
   useEffect(() => {
     const shortcut = (event: KeyboardEvent) => {
       const input = event.target as HTMLElement;
       const editing =
         input.isContentEditable ||
         ["INPUT", "TEXTAREA", "SELECT", "BUTTON"].includes(input.tagName);
-      if (
-        !editing &&
-        event.code === "Space" &&
-        !document.querySelector('[aria-modal="true"]')
-      ) {
+      const key = event.key.toLowerCase();
+      if (event.metaKey || event.ctrlKey || event.altKey) return;
+      if (key === "escape") {
+        setQueueOpen(false);
+        return;
+      }
+      if (editing || document.querySelector('[aria-modal="true"]')) return;
+
+      const actions = playerShortcutRef.current;
+      if (event.code === "Space" || key === "k") {
         event.preventDefault();
         void playerToggleRef.current();
+      } else if (event.key === "ArrowRight" || key === "n") {
+        event.preventDefault();
+        actions.next();
+      } else if (event.key === "ArrowLeft" || key === "p") {
+        event.preventDefault();
+        actions.previous();
+      } else if (key === "m") {
+        actions.setMuted(!actions.muted);
+        notify(actions.muted ? "Muted" : "Sound on");
+      } else if (key === "s") {
+        actions.setShuffle(!actions.shuffle);
+        notify(actions.shuffle ? "Shuffle off" : "Shuffle on");
+      } else if (key === "r") {
+        actions.setRepeat(!actions.repeat);
+        notify(actions.repeat ? "Repeat off" : "Repeat on");
+      } else if (key === "q") {
+        setQueueOpen((open) => !open);
+      } else if (key === "/" || key === "f") {
+        event.preventDefault();
+        setView("search");
+        window.requestAnimationFrame(() => searchInput.current?.focus());
       }
     };
     window.addEventListener("keydown", shortcut);
     return () => {
       window.removeEventListener("keydown", shortcut);
     };
-  }, []);
+  }, [notify]);
 
   useEffect(() => {
     const onFocus = () => {
@@ -1329,6 +1405,25 @@ export function TimeMachine() {
               </div>
             </div>
           )}
+          {offlineMode && (
+            <div className="offline-status-banner" role="status">
+              <WifiOff size={15} />
+              <span><strong>Offline mode</strong> · {downloadedSongs.length} saved track{downloadedSongs.length === 1 ? "" : "s"} available</span>
+              <button type="button" onClick={() => navigate("downloads")}>Manage downloads</button>
+            </div>
+          )}
+          {appUpdates.status === "available" && appUpdates.latestRelease && (
+            <div className="app-update-banner" role="status" aria-live="polite">
+              <span><strong>Rewind {appUpdates.latestRelease.version} is available</strong> · You are running {appUpdates.currentVersion}</span>
+              <button
+                type="button"
+                onClick={() => void openUpdateDownload(appUpdates.latestRelease?.installer?.browserDownloadUrl || appUpdates.latestRelease?.releaseUrl || "")}
+                disabled={!appUpdates.latestRelease.installer && !appUpdates.latestRelease.releaseUrl}
+              >
+                Download update
+              </button>
+            </div>
+          )}
           {view === "explore" && (
             <ExploreView
               allTracksCount={allTracks.length}
@@ -1341,7 +1436,6 @@ export function TimeMachine() {
               isPlaying={playing}
               isSaved={isSaved}
               onNavigate={navigate}
-              onShuffleAll={shuffleAll}
               onOpenPlaylist={openPlaylist}
               onPlayPlaylist={playPlaylist}
               onChooseTrack={player.choose}
@@ -1519,6 +1613,7 @@ export function TimeMachine() {
               onNavigate={navigate}
               crossfadeSeconds={player.crossfadeSeconds}
               onSetCrossfadeSeconds={player.setCrossfadeSeconds}
+              appUpdates={appUpdates}
             />
           )}
 

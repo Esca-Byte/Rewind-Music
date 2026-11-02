@@ -12,9 +12,13 @@ import {
   ListMusic,
   ShieldCheck,
   Zap,
+  RefreshCw,
+  DownloadCloud,
 } from "lucide-react";
 import type { AppTheme, ThemeOption, View } from "@/types/music";
 import { openDownloadsFolder } from "@/lib/tauri-audio";
+import { openUpdateDownload } from "@/lib/app-updates";
+import type { AppUpdatesState } from "@/components/time/use-app-updates";
 
 function GithubIcon({ size = 20, className = "" }: { size?: number; className?: string }) {
   return (
@@ -83,6 +87,7 @@ interface SettingsViewProps {
   onNavigate: (view: View) => void;
   crossfadeSeconds: number;
   onSetCrossfadeSeconds: (seconds: number) => void;
+  appUpdates: AppUpdatesState;
 }
 
 export function SettingsView({
@@ -91,6 +96,7 @@ export function SettingsView({
   onNavigate,
   crossfadeSeconds,
   onSetCrossfadeSeconds,
+  appUpdates,
 }: SettingsViewProps) {
   const currentThemeObj = APP_THEMES.find((t) => t.id === currentTheme) || APP_THEMES[0];
 
@@ -206,6 +212,62 @@ export function SettingsView({
         </div>
       </section>
 
+      <section className="settings-section update-settings-section">
+        <div className="section-header">
+          <div>
+            <h2>
+              <DownloadCloud size={18} /> App Updates
+            </h2>
+            <p>Check GitHub Releases for new Rewind desktop builds and download them when ready.</p>
+          </div>
+          <span className={`update-status-pill ${appUpdates.status}`}>
+            {appUpdates.status === "checking" ? "Checking…" : appUpdates.status === "available" ? "Update available" : appUpdates.status === "up-to-date" ? "Up to date" : `v${appUpdates.currentVersion}`}
+          </span>
+        </div>
+        <div className="update-settings-card">
+          <div className="update-settings-copy">
+            <strong>Automatically check for updates</strong>
+            <span>Rewind checks GitHub when the app opens. Your music and library data stay local.</span>
+          </div>
+          <button
+            type="button"
+            className={`settings-toggle ${appUpdates.autoCheck ? "active" : ""}`}
+            onClick={() => appUpdates.setAutoCheck(!appUpdates.autoCheck)}
+            aria-pressed={appUpdates.autoCheck}
+            aria-label="Automatically check for updates"
+          >
+            <span />
+          </button>
+          <button
+            type="button"
+            className="quiet-button update-check-button"
+            onClick={() => void appUpdates.checkForUpdates()}
+            disabled={appUpdates.status === "checking"}
+          >
+            <RefreshCw size={13} className={appUpdates.status === "checking" ? "spin" : ""} />
+            {appUpdates.status === "checking" ? "Checking…" : "Check now"}
+          </button>
+        </div>
+        {appUpdates.status === "available" && appUpdates.latestRelease && (
+          <div className="update-available-card">
+            <div>
+              <strong>{appUpdates.latestRelease.name}</strong>
+              <span>Version {appUpdates.latestRelease.version} is ready on GitHub Releases.</span>
+            </div>
+            <button
+              type="button"
+              className="primary-button"
+              onClick={() => void openUpdateDownload(appUpdates.latestRelease?.installer?.browserDownloadUrl || appUpdates.latestRelease?.releaseUrl || "")}
+            >
+              <Download size={14} /> Download
+            </button>
+          </div>
+        )}
+        {appUpdates.status === "error" && (
+          <p className="update-error">Could not check GitHub Releases. {appUpdates.error}</p>
+        )}
+      </section>
+
       {/* 2. PROJECT REPOSITORY SECTION */}
       <section className="settings-section">
         <div className="section-header">
@@ -225,7 +287,7 @@ export function SettingsView({
             <div className="github-meta">
               <div className="repo-title-row">
                 <h3>Esca-Byte / Rewind-Music</h3>
-                <span className="github-version-pill">v1.0.1</span>
+                <span className="github-version-pill">v1.2.0</span>
                 <span className="github-tauri-pill">Tauri v2 Native</span>
               </div>
               <p>
@@ -322,8 +384,32 @@ export function SettingsView({
                   <span>Play or pause current playback</span>
                 </div>
                 <div>
+                  <kbd>← →</kbd>
+                  <span>Previous or next track</span>
+                </div>
+                <div>
+                  <kbd>N / P</kbd>
+                  <span>Next or previous track</span>
+                </div>
+                <div>
+                  <kbd>M</kbd>
+                  <span>Mute or unmute playback</span>
+                </div>
+                <div>
+                  <kbd>S / R</kbd>
+                  <span>Toggle shuffle or repeat</span>
+                </div>
+                <div>
+                  <kbd>Q</kbd>
+                  <span>Open or close the queue</span>
+                </div>
+                <div>
+                  <kbd>/</kbd>
+                  <span>Focus music search</span>
+                </div>
+                <div>
                   <kbd>Esc</kbd>
-                  <span>Dismiss open modals & dialogs</span>
+                  <span>Close the queue</span>
                 </div>
               </div>
             </div>

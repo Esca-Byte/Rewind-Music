@@ -51,6 +51,7 @@ export interface DownloadedSong {
   filePath?: string;
   fileName?: string;
   fileSize?: number;
+  downloadStatus?: "downloading" | "downloaded" | "error";
 }
 
 export type View = "explore" | "playlists" | "collection" | "memories" | "downloads" | "stats" | "search" | "settings";

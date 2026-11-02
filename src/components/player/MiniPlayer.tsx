@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, type CSSProperties } from "react";
+import { useEffect, useState, type CSSProperties, type PointerEvent } from "react";
 import {
   LoaderCircle,
   Pause,
@@ -9,6 +9,7 @@ import {
   SkipForward,
 } from "lucide-react";
 import { emit, listen } from "@tauri-apps/api/event";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import { Artwork, getTrackCoverUrl } from "@/components/time/album-object";
 import {
   MINI_PLAYER_COMMAND_EVENT,
@@ -21,6 +22,15 @@ import type { AppTheme } from "@/types/music";
 
 function sendCommand(command: MiniPlayerCommand) {
   void emit(MINI_PLAYER_COMMAND_EVENT, command);
+}
+
+function beginWindowDrag(event: PointerEvent<HTMLElement>) {
+  if (event.button !== 0) return;
+  const target = event.target as HTMLElement;
+  if (target.closest("button")) return;
+  void getCurrentWindow().startDragging().catch(() => {
+    // The mini-player can also be previewed in a normal browser window.
+  });
 }
 
 export function MiniPlayer() {
@@ -73,6 +83,7 @@ export function MiniPlayer() {
       style={miniPlayerStyle}
       aria-label="Rewind mini player"
       data-tauri-drag-region
+      onPointerDown={beginWindowDrag}
     >
       {/* A quiet visual stage keeps the widget recognizable without extra text. */}
       <section className="mini-player-content" data-tauri-drag-region>

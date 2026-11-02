@@ -12,6 +12,8 @@ import {
   RefreshCw,
   Trash2,
   WifiOff,
+  AlertCircle,
+  LoaderCircle,
 } from "lucide-react";
 import type { TimeTrack } from "@/lib/time/types";
 import type { DownloadedSong, View } from "@/types/music";
@@ -176,6 +178,8 @@ export function DownloadsView({
               const fileSizeMb = song.fileSize
                 ? `${(song.fileSize / (1024 * 1024)).toFixed(1)} MB`
                 : null;
+              const downloadStatus = song.downloadStatus || "downloaded";
+              const isReady = downloadStatus === "downloaded";
 
               return (
                 <div key={song.id} className="download-item">
@@ -183,13 +187,16 @@ export function DownloadsView({
                     type="button"
                     className="download-play-btn"
                     onClick={() => {
+                      if (!isReady) return;
                       if (isCurrent) {
                         onTogglePlay();
                       } else {
                         onChooseTrack(track, [track]);
                       }
                     }}
+                    disabled={!isReady}
                     aria-label={`Play ${song.title}`}
+                    title={isReady ? `Play ${song.title}` : "Download is not ready yet"}
                   >
                     {isCurrent && isPlaying ? (
                       <Pause size={17} fill="currentColor" />
@@ -205,6 +212,11 @@ export function DownloadsView({
                     </div>
                     <small>
                       {song.artist}{" "}
+                      <span className={`download-status-badge ${downloadStatus}`}>
+                        {downloadStatus === "downloading" && <LoaderCircle size={10} className="spin" />}
+                        {downloadStatus === "error" && <AlertCircle size={10} />}
+                        {downloadStatus === "downloading" ? "Downloading" : downloadStatus === "error" ? "Failed" : "Saved offline"}
+                      </span>{" "}
                       {song.downloadedAt
                         ? `· Downloaded ${new Date(song.downloadedAt).toLocaleDateString()}`
                         : ""}
@@ -218,7 +230,7 @@ export function DownloadsView({
                       title="Download again"
                       aria-label={`Download ${song.title} again`}
                     >
-                      <ArrowDownToLine size={16} />
+                      {downloadStatus === "downloading" ? <LoaderCircle size={16} className="spin" /> : <ArrowDownToLine size={16} />}
                     </button>
                     <button
                       type="button"
