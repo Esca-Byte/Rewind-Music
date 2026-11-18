@@ -360,9 +360,60 @@ struct SearchTrackResult {
     source: String,
 }
 
+fn search_innertube_songs_sync(
+    query: &str,
+    genre_label: &str,
+    max_items: usize,
+) -> Result<Vec<SearchTrackResult>, String> {
+    let trimmed = query.trim();
+    if trimmed.is_empty() {
+        return Ok(Vec::new());
+    }
+    let payload = serde_json::json!({
+        "query": trimmed,
+        "params": "EgWKAQIIAWoMEAMQBBAJEAoQBRAV",
+        "context": {
+            "client": {
+                "clientName": "WEB_REMIX",
+                "clientVersion": "1.20241118.01.00",
+                "hl": "en",
+                "gl": "US"
+            }
+        }
+    });
+
+    let response = ureq::post("https://music.youtube.com/youtubei/v1/search?prettyPrint=false")
+        .set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36")
+        .set("Origin", "https://music.youtube.com")
+        .set("Referer", "https://music.youtube.com/")
+        .set("X-YouTube-Client-Name", "67")
+        .set("X-YouTube-Client-Version", "1.20241118.01.00")
+        .set("Content-Type", "application/json")
+        .timeout(std::time::Duration::from_secs(7))
+        .send_string(&payload.to_string())
+        .map_err(|e| format!("InnerTube search request failed: {e}"))?;
+
+    let body = response
+        .into_string()
+        .map_err(|e| format!("InnerTube search read failed: {e}"))?;
+
+    let root: serde_json::Value = serde_json::from_str(&body)
+        .map_err(|e| format!("InnerTube search JSON parse failed: {e}"))?;
+
+    Ok(parse_innertube_search_songs(&root, genre_label, max_items))
+}
+
 #[tauri::command]
 async fn search_tracks_native(query: String) -> Result<Vec<SearchTrackResult>, String> {
     tauri::async_runtime::spawn_blocking(move || {
+        // Fast path: YouTube Music InnerTube Songs search (~350ms, clean artist/album/square cover)
+        if let Ok(fast_results) = search_innertube_songs_sync(&query, "YouTube Music", 16) {
+            if !fast_results.is_empty() {
+                return Ok(fast_results);
+            }
+        }
+
+        // Fallback path: yt-dlp ytsearch12
         let yt_dlp_path = ensure_yt_dlp()?;
         let mut cmd = std::process::Command::new(yt_dlp_path);
 
@@ -424,6 +475,340 @@ async fn search_tracks_native(query: String) -> Result<Vec<SearchTrackResult>, S
     })
     .await
     .map_err(|e| format!("Search task error: {e}"))?
+}
+
+fn collect_objects_by_key<'a>(
+    value: &'a serde_json::Value,
+    target_key: &str,
+    out: &mut Vec<&'a serde_json::Map<String, serde_json::Value>>,
+) {
+    match value {
+        serde_json::Value::Object(map) => {
+            if let Some(serde_json::Value::Object(found)) = map.get(target_key) {
+                out.push(found);
+            }
+            for child in map.values() {
+                collect_objects_by_key(child, target_key, out);
+            }
+        }
+        serde_json::Value::Array(arr) => {
+            for item in arr {
+                collect_objects_by_key(item, target_key, out);
+            }
+        }
+        _ => {}
+    }
+}
+
+fn upgrade_yt_thumbnail(url: &str) -> String {
+    if let Some(eq_idx) = url.find("=w") {
+        if let Some(rest) = url.get(eq_idx..) {
+            if rest.contains("-h") {
+                return format!("{}=w600-h600-l90-rj", &url[..eq_idx]);
+            }
+        }
+    }
+    url.to_string()
+}
+
+fn looks_like_duration(text: &str) -> bool {
+    let trimmed = text.trim();
+    if trimmed.is_empty() || trimmed.len() > 8 {
+        return false;
+    }
+    let parts: Vec<&str> = trimmed.split(':').collect();
+    if parts.len() != 2 && parts.len() != 3 {
+        return false;
+    }
+    parts
+        .iter()
+        .all(|p| !p.is_empty() && p.chars().all(|c| c.is_ascii_digit()))
+}
+
+fn parse_innertube_automix_response(
+    root: &serde_json::Value,
+    seed_video_id: &str,
+) -> Vec<SearchTrackResult> {
+    let mut renderers = Vec::new();
+    collect_objects_by_key(root, "playlistPanelVideoRenderer", &mut renderers);
+
+    let mut seen = std::collections::HashSet::new();
+    seen.insert(seed_video_id.to_string());
+    let mut tracks = Vec::new();
+
+    for renderer in renderers {
+        let Some(video_id) = renderer.get("videoId").and_then(|v| v.as_str()) else {
+            continue;
+        };
+        if video_id.is_empty() || !seen.insert(video_id.to_string()) {
+            continue;
+        }
+
+        let title = renderer
+            .get("title")
+            .and_then(|t| t.get("runs"))
+            .and_then(|r| r.as_array())
+            .and_then(|arr| arr.first())
+            .and_then(|item| item.get("text"))
+            .and_then(|t| t.as_str())
+            .map(str::trim)
+            .filter(|s| !s.is_empty());
+
+        let Some(title) = title else {
+            continue;
+        };
+
+        let byline_runs = renderer
+            .get("longBylineText")
+            .and_then(|v| v.get("runs"))
+            .and_then(|r| r.as_array())
+            .or_else(|| {
+                renderer
+                    .get("shortBylineText")
+                    .and_then(|v| v.get("runs"))
+                    .and_then(|r| r.as_array())
+            });
+
+        let artist = byline_runs
+            .and_then(|runs| {
+                runs.iter()
+                    .filter_map(|r| r.get("text").and_then(|t| t.as_str()))
+                    .map(str::trim)
+                    .find(|t| !t.is_empty() && *t != "•" && *t != "·")
+            })
+            .unwrap_or("YouTube Artist")
+            .to_string();
+
+        let album = byline_runs
+            .and_then(|runs| {
+                runs.iter()
+                    .filter_map(|r| r.get("text").and_then(|t| t.as_str()))
+                    .map(str::trim)
+                    .filter(|t| !t.is_empty() && *t != "•" && *t != "·")
+                    .nth(1)
+            })
+            .filter(|candidate| !candidate.chars().all(|c| c.is_ascii_digit()))
+            .unwrap_or("Smart Radio")
+            .to_string();
+
+        let length_text = renderer
+            .get("lengthText")
+            .and_then(|v| v.get("runs"))
+            .and_then(|r| r.as_array())
+            .and_then(|arr| arr.first())
+            .and_then(|item| item.get("text"))
+            .and_then(|t| t.as_str())
+            .unwrap_or("3:30");
+
+        let cover = renderer
+            .get("thumbnail")
+            .and_then(|t| t.get("thumbnails"))
+            .and_then(|arr| arr.as_array())
+            .and_then(|arr| arr.last())
+            .and_then(|item| item.get("url"))
+            .and_then(|u| u.as_str())
+            .map(upgrade_yt_thumbnail)
+            .unwrap_or_else(|| format!("https://i.ytimg.com/vi/{video_id}/hqdefault.jpg"));
+
+        tracks.push(SearchTrackResult {
+            id: format!("yt-{video_id}"),
+            video_id: video_id.to_string(),
+            title: title.to_string(),
+            artist,
+            album,
+            genre: "Smart Radio".to_string(),
+            year: None,
+            duration: parse_duration_string(length_text),
+            cover,
+            source: "youtube".to_string(),
+        });
+
+        if tracks.len() >= 18 {
+            break;
+        }
+    }
+
+    tracks
+}
+
+fn parse_innertube_search_songs(
+    root: &serde_json::Value,
+    genre_label: &str,
+    max_items: usize,
+) -> Vec<SearchTrackResult> {
+    let mut renderers = Vec::new();
+    collect_objects_by_key(root, "musicResponsiveListItemRenderer", &mut renderers);
+
+    let mut seen = std::collections::HashSet::new();
+    let mut tracks = Vec::new();
+
+    for renderer in renderers {
+        let video_id = renderer
+            .get("playlistItemData")
+            .and_then(|p| p.get("videoId"))
+            .and_then(|v| v.as_str())
+            .or_else(|| {
+                renderer
+                    .get("overlay")
+                    .and_then(|o| o.pointer("/musicItemThumbnailOverlayRenderer/content/musicPlayButtonRenderer/playNavigationEndpoint/watchEndpoint/videoId"))
+                    .and_then(|v| v.as_str())
+            });
+
+        let Some(video_id) = video_id else {
+            continue;
+        };
+        if video_id.len() != 11 || !seen.insert(video_id.to_string()) {
+            continue;
+        }
+
+        let columns = renderer
+            .get("flexColumns")
+            .and_then(|c| c.as_array());
+
+        let title = columns
+            .and_then(|cols| cols.first())
+            .and_then(|c| c.pointer("/musicResponsiveListItemFlexColumnRenderer/text/runs/0/text"))
+            .and_then(|t| t.as_str())
+            .map(str::trim)
+            .filter(|s| !s.is_empty());
+
+        let Some(title) = title else {
+            continue;
+        };
+
+        let meta_runs: Vec<&str> = columns
+            .and_then(|cols| cols.get(1))
+            .and_then(|c| c.pointer("/musicResponsiveListItemFlexColumnRenderer/text/runs"))
+            .and_then(|r| r.as_array())
+            .map(|runs| {
+                runs.iter()
+                    .filter_map(|r| r.get("text").and_then(|t| t.as_str()))
+                    .map(str::trim)
+                    .filter(|t| !t.is_empty() && *t != "•" && *t != "·" && !t.eq_ignore_ascii_case("song") && !t.eq_ignore_ascii_case("video"))
+                    .collect()
+            })
+            .unwrap_or_default();
+
+        let duration_text = meta_runs
+            .iter()
+            .rev()
+            .copied()
+            .find(|t| looks_like_duration(t))
+            .unwrap_or("3:30");
+
+        let non_duration_runs: Vec<&str> = meta_runs
+            .iter()
+            .copied()
+            .filter(|t| !looks_like_duration(t) && !t.to_lowercase().contains("plays") && !t.to_lowercase().contains("views"))
+            .collect();
+
+        let artist = non_duration_runs
+            .first()
+            .copied()
+            .unwrap_or("YouTube Artist")
+            .to_string();
+
+        let album = non_duration_runs
+            .get(1)
+            .copied()
+            .unwrap_or("Smart Mix")
+            .to_string();
+
+        let cover = renderer
+            .get("thumbnail")
+            .and_then(|t| t.pointer("/musicThumbnailRenderer/thumbnail/thumbnails"))
+            .and_then(|arr| arr.as_array())
+            .and_then(|arr| arr.last())
+            .and_then(|item| item.get("url"))
+            .and_then(|u| u.as_str())
+            .map(upgrade_yt_thumbnail)
+            .unwrap_or_else(|| format!("https://i.ytimg.com/vi/{video_id}/hqdefault.jpg"));
+
+        tracks.push(SearchTrackResult {
+            id: format!("yt-{video_id}"),
+            video_id: video_id.to_string(),
+            title: title.to_string(),
+            artist,
+            album,
+            genre: genre_label.to_string(),
+            year: None,
+            duration: parse_duration_string(duration_text),
+            cover,
+            source: "youtube".to_string(),
+        });
+
+        if tracks.len() >= max_items {
+            break;
+        }
+    }
+
+    tracks
+}
+
+#[tauri::command]
+async fn fetch_youtube_automix(video_id: String) -> Result<Vec<SearchTrackResult>, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let clean_id = video_id.trim();
+        if clean_id.len() != 11 {
+            return Ok(Vec::new());
+        }
+
+        let payload = serde_json::json!({
+            "videoId": clean_id,
+            "playlistId": format!("RDAMVM{clean_id}"),
+            "isAudioOnly": true,
+            "enablePersistentPlaylistPanel": true,
+            "context": {
+                "client": {
+                    "clientName": "WEB_REMIX",
+                    "clientVersion": "1.20241118.01.00",
+                    "hl": "en",
+                    "gl": "US"
+                }
+            }
+        });
+
+        let response = ureq::post("https://music.youtube.com/youtubei/v1/next?prettyPrint=false")
+            .set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36")
+            .set("Origin", "https://music.youtube.com")
+            .set("Referer", "https://music.youtube.com/")
+            .set("X-YouTube-Client-Name", "67")
+            .set("X-YouTube-Client-Version", "1.20241118.01.00")
+            .set("Content-Type", "application/json")
+            .timeout(std::time::Duration::from_secs(8))
+            .send_string(&payload.to_string())
+            .map_err(|e| format!("InnerTube automix request failed: {e}"))?;
+
+        let body = response
+            .into_string()
+            .map_err(|e| format!("InnerTube automix read failed: {e}"))?;
+
+        let root: serde_json::Value = serde_json::from_str(&body)
+            .map_err(|e| format!("InnerTube automix JSON parse failed: {e}"))?;
+
+        Ok(parse_innertube_automix_response(&root, clean_id))
+    })
+    .await
+    .map_err(|e| format!("Automix task error: {e}"))?
+}
+
+#[tauri::command]
+async fn fetch_genre_radio_tracks(
+    query: String,
+    genre_label: Option<String>,
+    limit: Option<usize>,
+) -> Result<Vec<SearchTrackResult>, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let max_items = limit.unwrap_or(16).clamp(4, 24);
+        let label = genre_label
+            .as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .unwrap_or("Smart Mix");
+        search_innertube_songs_sync(&query, label, max_items)
+    })
+    .await
+    .map_err(|e| format!("Genre radio task error: {e}"))?
 }
 
 #[derive(serde::Serialize, serde::Deserialize, Clone, Debug)]
@@ -1304,6 +1689,19 @@ fn app_show_mini_player(app: tauri::AppHandle) -> Result<(), String> {
 }
 
 #[tauri::command]
+fn app_restore_main_window(app: tauri::AppHandle) -> Result<(), String> {
+    if let Some(mini) = app.get_webview_window("mini") {
+        let _ = mini.hide();
+    }
+    if let Some(main) = app.get_webview_window("main") {
+        main.unminimize().map_err(|e| e.to_string())?;
+        main.show().map_err(|e| e.to_string())?;
+        main.set_focus().map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
+#[tauri::command]
 fn app_minimize_window(window: tauri::Window, app: tauri::AppHandle) -> Result<(), String> {
     // Show the companion before minimizing the main WebView. On Windows the
     // minimized WebView may be suspended immediately, which can otherwise
@@ -1341,12 +1739,15 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             resolve_stream_url,
             search_tracks_native,
+            fetch_youtube_automix,
+            fetch_genre_radio_tracks,
             download_track_native,
             scan_downloads_folder,
             delete_downloaded_track,
             get_downloads_folder,
             open_downloads_folder,
             app_show_mini_player,
+            app_restore_main_window,
             app_minimize_window,
             app_toggle_maximize_window,
             app_close_window,

@@ -15,6 +15,12 @@ import {
 } from "@/lib/time/playlists";
 import { isTimeTrack, type TimeTrack } from "@/lib/time/types";
 import { getSimilarTracks } from "@/lib/time/similar-tracks";
+import {
+  generateSmartQueueTracks,
+  getSmartQueueMode,
+  trackMatchesSmartMode,
+  type SmartQueueModeId,
+} from "@/lib/time/smart-queue";
 import { getTrackCoverUrl } from "@/components/time/album-object";
 import {
   isTauriEnvironment,
@@ -31,6 +37,7 @@ import {
   matchSpotifyTracksBatch,
   showMiniPlayerWindow,
   hideMiniPlayerWindow,
+  restoreMainWindow,
 } from "@/lib/tauri-audio";
 import { emit, listen } from "@tauri-apps/api/event";
 import {
@@ -55,28 +62,31 @@ import { Sidebar } from "@/components/layout/Sidebar";
 import { MobileNav } from "@/components/layout/MobileNav";
 import { PersistentPlayer } from "@/components/player/PersistentPlayer";
 import { QueueDrawer } from "@/components/player/QueueDrawer";
+import { LyricsOverlay } from "@/components/player/LyricsOverlay";
 import { AddPlaylistDialog } from "@/components/dialogs/AddPlaylistDialog";
 import { AddToPlaylistDialog } from "@/components/dialogs/AddToPlaylistDialog";
 import { TrackDetailsDialog } from "@/components/dialogs/TrackDetailsDialog";
-import { AboutDialog } from "@/components/dialogs/AboutDialog";
+import { CommandPalette } from "@/components/dialogs/CommandPalette";
+import { ConfirmDialog } from "@/components/common/ConfirmDialog";
 
 // Views
 import { ExploreView } from "@/components/views/ExploreView";
-import { PlaylistView } from "@/components/views/PlaylistView";
+import { PlaylistView, type BatchDownloadProgress } from "@/components/views/PlaylistView";
 import { SearchView } from "@/components/views/SearchView";
 import { LibraryView } from "@/components/views/LibraryView";
 import { DownloadsView } from "@/components/views/DownloadsView";
 import { SettingsView } from "@/components/views/SettingsView";
 import { StatsView } from "@/components/views/StatsView";
+import { ArtistView } from "@/components/views/ArtistView";
+import { HomeRightRail } from "@/components/layout/HomeRightRail";
 
 // Core hooks & plugins
 import { useListeningLibrary } from "./use-listening-library";
 import { useListeningStats } from "./use-listening-stats";
-import { useTimePlayer } from "./use-time-player";
+import { useTimePlayer, type SmartQueueFetcherArgs } from "./use-time-player";
 import { useMediaKeys } from "./use-media-keys";
 import { useSleepTimer } from "./use-sleep-timer";
 import { useAppUpdates } from "./use-app-updates";
-import { openUpdateDownload } from "@/lib/app-updates";
 
 export type { UserPlaylist, DownloadedSong };
 
@@ -89,6 +99,8 @@ function localDay(value: string | Date | number) {
 
 const SPOTIFY_SYNC_CACHE_KEY = "rewind_spotify_sync_cache_v1";
 const SEARCH_CACHE_KEY = "rewind_search_cache_v1";
+const RECENT_SEARCHES_KEY = "rewind_recent_searches_v1";
+const SAVED_PLAYLISTS_CACHE_KEY = "rewind_saved_playlists_v1";
 
 type CachedSpotifyTrack = {
   sourceId: string;
@@ -204,15 +216,29 @@ async function resolveSpotifyPlaylist(
 
 export function TimeMachine() {
   const [view, setView] = useState<View>("explore");
+  const [navHistory, setNavHistory] = useState<View[]>(["explore"]);
+  const [navIndex, setNavIndex] = useState(0);
+  const [selectedArtist, setSelectedArtist] = useState("");
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<TimeTrack[]>([]);
+  const [recentSearches, setRecentSearches] = useState<string[]>([]);
   const [searching, setSearching] = useState(false);
   const [searchError, setSearchError] = useState("");
   const [searchedFor, setSearchedFor] = useState("");
   const [toast, setToast] = useState("");
   const [details, setDetails] = useState<TimeTrack | null>(null);
-  const [infoOpen, setInfoOpen] = useState(false);
   const [queueOpen, setQueueOpen] = useState(false);
+  const [lyricsOpen, setLyricsOpen] = useState(false);
+  const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
+  const [confirmState, setConfirmState] = useState<{
+    title: string;
+    description: string;
+    confirmLabel: string;
+    destructive?: boolean;
+    onConfirm: () => void;
+  } | null>(null);
+  const [batchDownload, setBatchDownload] = useState<BatchDownloadProgress | null>(null);
+  const batchDownloadCancelledRef = useRef(false);
   const [memoryDate, setMemoryDate] = useState("");
   const [today, setToday] = useState("");
   const [downloadedSongs, setDownloadedSongs] = useState<DownloadedSong[]>([]);
@@ -225,6 +251,15 @@ export function TimeMachine() {
   });
   const [selectedPlaylistId, setSelectedPlaylistId] = useState<string>("kpop-2026");
   const [curatedPlaylists, setCuratedPlaylists] = useState<Playlist[]>(playlists);
+  const [savedPlaylistIds, setSavedPlaylistIds] = useState<string[]>(() => {
+    if (typeof window === "undefined") return [];
+    try {
+      const parsed = JSON.parse(localStorage.getItem(SAVED_PLAYLISTS_CACHE_KEY) || "[]");
+      return Array.isArray(parsed) ? parsed.filter((id): id is string => typeof id === "string") : [];
+    } catch {
+      return [];
+    }
+  });
   const [spotifySync, setSpotifySync] = useState<SpotifySyncState>({
     active: false,
     completed: 0,
@@ -240,10 +275,8 @@ export function TimeMachine() {
   const [refreshingPlaylistId, setRefreshingPlaylistId] = useState<string | null>(null);
 
   // Navigation history & window controls
-  const [viewHistory, setViewHistory] = useState<View[]>(["explore"]);
-  const [historyIndex, setHistoryIndex] = useState(0);
   const [isMaximized, setIsMaximized] = useState(false);
-  const [theme, setTheme] = useState<AppTheme>("analog");
+  const [theme, setTheme] = useState<AppTheme>("aurora");
 
   const searchInput = useRef<HTMLInputElement>(null);
   const searchId = useRef(0);
@@ -251,7 +284,12 @@ export function TimeMachine() {
   const searchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lookupCache = useRef(new Map<string, TimeTrack[]>());
-  const smartQueueSeed = useRef("");
+  const smartQueueContextRef = useRef<{
+    pool: TimeTrack[];
+    tasteGenres: string[];
+    tasteArtists: string[];
+    offlineOnly: boolean;
+  }>({ pool: [], tasteGenres: [], tasteArtists: [], offlineOnly: false });
 
   const notify = useCallback((message: string) => {
     if (toastTimer.current) clearTimeout(toastTimer.current);
@@ -274,7 +312,44 @@ export function TimeMachine() {
     void library.listen(nextTrack);
     listeningStats.record(nextTrack);
   }, [library.listen, listeningStats.record]);
-  const player = useTimePlayer(initialTrack, listenAndRecord, handleTrackError, offlineMode);
+
+  const fetchAutoQueue = useCallback(async (args: SmartQueueFetcherArgs): Promise<TimeTrack[]> => {
+    const ctx = smartQueueContextRef.current;
+    return generateSmartQueueTracks({
+      seedTrack: args.seedTrack,
+      evolvingSeeds: args.evolvingSeeds,
+      mode: args.mode,
+      localPool: ctx.pool,
+      excludeIds: args.excludeIds,
+      excludeSignatures: args.excludeSignatures,
+      tasteGenres: ctx.tasteGenres,
+      tasteArtists: ctx.tasteArtists,
+      offlineOnly: ctx.offlineOnly,
+      limit: 12,
+    });
+  }, []);
+
+  const pauseForSleepRef = useRef<(() => void) | null>(null);
+  const handleSleepTimerExpired = useCallback(() => {
+    pauseForSleepRef.current?.();
+    notify("Sleep timer ended. Playback paused.");
+  }, [notify]);
+  const sleepTimer = useSleepTimer(handleSleepTimerExpired);
+
+  const player = useTimePlayer(
+    initialTrack,
+    listenAndRecord,
+    handleTrackError,
+    offlineMode,
+    fetchAutoQueue,
+    {
+      volumeMultiplier: sleepTimer.fadeMultiplier,
+      onBeforeAdvanceOnEnded: sleepTimer.consumeStopAfterCurrent,
+    }
+  );
+  useEffect(() => {
+    pauseForSleepRef.current = player.pause;
+  }, [player.pause]);
   const playing = player.status === "playing";
 
   useMediaKeys({
@@ -297,11 +372,6 @@ export function TimeMachine() {
     position: player.position,
   });
 
-  const handleSleepTimerExpired = () => {
-    player.audioRef.current?.pause();
-    notify("Sleep timer ended. Playback paused.");
-  };
-  const sleepTimer = useSleepTimer(handleSleepTimerExpired);
   const appUpdates = useAppUpdates();
 
   const isCurrentTrackSaved = useMemo(
@@ -377,9 +447,29 @@ export function TimeMachine() {
   }, [selectedPlaylistId, customPlaylists, curatedPlaylists]);
 
   const recommendationPool = useMemo(() => {
+    const offlineTracks: TimeTrack[] = downloadedSongs
+      .filter((song) => song.downloadStatus !== "downloading" && song.downloadStatus !== "error")
+      .map((song) => ({
+        id: song.id,
+        videoId: song.videoId,
+        title: song.title,
+        artist: song.artist,
+        album: song.album || "Rewind Downloads",
+        year: song.year ?? null,
+        genre: song.genre || "Offline Audio",
+        duration: song.duration || 180,
+        cover:
+          song.cover ||
+          (song.videoId && !song.videoId.startsWith("local-")
+            ? `https://i.ytimg.com/vi/${song.videoId}/hqdefault.jpg`
+            : "/time/palm-sunset.jpg"),
+        source: song.filePath ? "local" : "youtube",
+        filePath: song.filePath,
+      }));
     const tracks = [
       ...library.favorites,
       ...library.history.map((memory) => memory.track),
+      ...offlineTracks,
       ...allTracks,
       ...activePlaylist.tracks,
       ...customPlaylists.flatMap((playlist) => playlist.tracks),
@@ -391,7 +481,24 @@ export function TimeMachine() {
       seen.add(key);
       return true;
     });
-  }, [activePlaylist.tracks, allTracks, customPlaylists, library.favorites, library.history]);
+  }, [activePlaylist.tracks, allTracks, customPlaylists, downloadedSongs, library.favorites, library.history]);
+
+  useEffect(() => {
+    const topGenres = Object.entries(listeningStats.stats.genres)
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 6)
+      .map(([name]) => name);
+    const topArtists = Object.entries(listeningStats.stats.artists)
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 6)
+      .map(([name]) => name);
+    smartQueueContextRef.current = {
+      pool: recommendationPool,
+      tasteGenres: topGenres,
+      tasteArtists: topArtists,
+      offlineOnly: offlineMode,
+    };
+  }, [recommendationPool, listeningStats.stats.genres, listeningStats.stats.artists, offlineMode]);
 
   const personalizedTracks = useMemo(() => {
     const genreWeights = new Map<string, number>();
@@ -497,48 +604,58 @@ export function TimeMachine() {
     return () => window.clearTimeout(timer);
   }, [syncDefaultPlaylists]);
 
-  const similarTracks = useMemo(
-    () => getSimilarTracks(player.track, recommendationPool, 8),
-    [player.track, recommendationPool]
-  );
-
-  const playSimilarTracks = useCallback(() => {
-    const current = player.track;
-    const existing = player.queue.filter(
-      (candidate) => candidate.videoId !== current.videoId && candidate.id !== current.id
-    );
-    const additions = similarTracks.filter(
-      (candidate) =>
-        !existing.some(
-          (queued) => queued.videoId === candidate.videoId || queued.id === candidate.id
-        )
-    );
-    const nextQueue = [current, ...existing, ...additions];
-    const first = additions[0] || existing[0];
-    if (!first) {
-      notify("No similar tracks found for this song.");
-      return;
-    }
-    player.choose(first, nextQueue);
-    notify(`Smart queue added ${additions.length || 1} similar track${(additions.length || 1) === 1 ? "" : "s"}.`);
-  }, [notify, player, similarTracks]);
-
   useEffect(() => {
-    if (!playing || player.queue.length - 1 >= 3 || smartQueueSeed.current === player.track.id) {
+    try {
+      localStorage.setItem(SAVED_PLAYLISTS_CACHE_KEY, JSON.stringify(savedPlaylistIds));
+    } catch {
+      // Saved playlist state is optional when browser storage is unavailable.
+    }
+  }, [savedPlaylistIds]);
+
+  const handleAddToQueue = useCallback((track: TimeTrack) => {
+    const outcome = player.addToQueue(track);
+    if (outcome === "already-playing") {
+      notify(`"${track.title}" is already playing`);
+    } else if (outcome === "already-in-queue") {
+      notify(`"${track.title}" is already in queue`);
+    } else if (outcome === "promoted") {
+      notify(`Moved "${track.title}" to Up Next`);
+    } else {
+      notify(`Added "${track.title}" to queue`);
+    }
+  }, [notify, player]);
+
+  const handleStartSongRadio = useCallback((track: TimeTrack, modeOverride?: SmartQueueModeId) => {
+    player.startSongRadio(track, modeOverride);
+    const modeLabel = modeOverride ? getSmartQueueMode(modeOverride).label : null;
+    notify(
+      modeLabel
+        ? `Started ${modeLabel} Radio from "${track.title}"`
+        : `Started Song Radio for "${track.title}"`
+    );
+  }, [notify, player]);
+
+  const handleLaunchSmartQueueMode = useCallback((mode: SmartQueueModeId) => {
+    const modeMeta = getSmartQueueMode(mode);
+    if (mode === "auto" || mode === "similar-artist") {
+      player.startSongRadio(player.track, mode);
+      setQueueOpen(true);
+      notify(`${modeMeta.label} Smart Queue started`);
       return;
     }
-    smartQueueSeed.current = player.track.id;
-    const queuedKeys = new Set(player.queue.flatMap((candidate) => [candidate.id, candidate.videoId]));
-    const additions = getSimilarTracks(player.track, recommendationPool, 8).filter(
-      (candidate) => !queuedKeys.has(candidate.id) && !queuedKeys.has(candidate.videoId)
-    ).slice(0, 5);
-    additions.forEach((candidate) => player.addToQueue(candidate));
-    if (additions.length) {
-      window.setTimeout(() => {
-        notify(`Smart queue added ${additions.length} track${additions.length === 1 ? "" : "s"} for you.`);
-      }, 0);
+
+    const matchingLocal = recommendationPool.filter((track) => trackMatchesSmartMode(track, mode));
+    const seed =
+      (player.status !== "idle" && trackMatchesSmartMode(player.track, mode))
+        ? player.track
+        : matchingLocal[Math.floor(Math.random() * matchingLocal.length)] || player.track;
+
+    if (seed) {
+      player.startSongRadio(seed, mode);
+      setQueueOpen(true);
+      notify(`${modeMeta.label} Auto-Queue started`);
     }
-  }, [notify, player, playing, recommendationPool]);
+  }, [notify, player, recommendationPool]);
 
   const persistCustomPlaylists = useCallback((next: UserPlaylist[]) => {
     setCustomPlaylists(next);
@@ -681,12 +798,32 @@ export function TimeMachine() {
     (id: string) => {
       const target = customPlaylists.find((p) => p.id === id);
       if (!target) return;
-      if (confirm(`Are you sure you want to delete playlist "${target.title}"?`)) {
-        const next = customPlaylists.filter((p) => p.id !== id);
-        persistCustomPlaylists(next);
-        setSelectedPlaylistId("kpop-2026");
-        notify(`Deleted playlist "${target.title}"`);
-      }
+      setConfirmState({
+        title: `Delete "${target.title}"?`,
+        description: `This removes the custom playlist and its ${target.tracks.length} track entries from your library.`,
+        confirmLabel: "Delete Playlist",
+        destructive: true,
+        onConfirm: () => {
+          const next = customPlaylists.filter((p) => p.id !== id);
+          persistCustomPlaylists(next);
+          setSelectedPlaylistId("kpop-2026");
+          notify(`Deleted playlist "${target.title}"`);
+          setConfirmState(null);
+        },
+      });
+    },
+    [customPlaylists, persistCustomPlaylists, notify]
+  );
+
+  const handleRenamePlaylist = useCallback(
+    (id: string, nextTitle: string) => {
+      const trimmed = nextTitle.trim();
+      if (!trimmed) return;
+      const updated = customPlaylists.map((p) =>
+        p.id === id ? { ...p, title: trimmed } : p
+      );
+      persistCustomPlaylists(updated);
+      notify(`Renamed playlist to "${trimmed}"`);
     },
     [customPlaylists, persistCustomPlaylists, notify]
   );
@@ -744,6 +881,44 @@ export function TimeMachine() {
     [player, notify]
   );
 
+  const queuePlaylist = useCallback(
+    (playlist: Playlist) => {
+      const queuedKeys = new Set(player.queue.flatMap((track) => [track.id, track.videoId]));
+      let added = 0;
+      playlist.tracks.forEach((track) => {
+        if (queuedKeys.has(track.id) || queuedKeys.has(track.videoId)) return;
+        queuedKeys.add(track.id);
+        queuedKeys.add(track.videoId);
+        player.addToQueue(track);
+        added += 1;
+      });
+      notify(
+        added
+          ? `Added ${added} track${added === 1 ? "" : "s"} from ${playlist.title} to the queue`
+          : `${playlist.title} is already in the queue`
+      );
+    },
+    [notify, player.addToQueue, player.queue]
+  );
+
+  const isPlaylistSaved = useCallback(
+    (playlist: Playlist) => savedPlaylistIds.includes(playlist.id),
+    [savedPlaylistIds]
+  );
+
+  const togglePlaylistSaved = useCallback(
+    (playlist: Playlist) => {
+      const saved = savedPlaylistIds.includes(playlist.id);
+      setSavedPlaylistIds((current) =>
+        saved
+          ? current.filter((id) => id !== playlist.id)
+          : [playlist.id, ...current]
+      );
+      notify(saved ? `Removed ${playlist.title} from saved playlists` : `Saved ${playlist.title}`);
+    },
+    [notify, savedPlaylistIds]
+  );
+
   const playLikedRadio = useCallback(() => {
     if (!library.favorites.length) {
       notify("Save a few songs first to start your liked radio.");
@@ -764,18 +939,17 @@ export function TimeMachine() {
     notify(`Shuffling across all playlists (${allTracks.length} tracks)`);
   }, [allTracks, player, notify]);
 
-  const openPlaylist = useCallback((id: string) => {
-    setSelectedPlaylistId(id);
-    setView("playlists");
-    window.scrollTo({ top: 0, behavior: "smooth" });
-  }, []);
-
   const navigate = useCallback(
-    (next: View) => {
+    (next: View, pushHistory = true) => {
       if (next === view) return;
       setView(next);
-      setViewHistory((prev) => [...prev.slice(0, historyIndex + 1), next]);
-      setHistoryIndex((prev) => prev + 1);
+      if (pushHistory) {
+        setNavHistory((prev) => {
+          const trimmed = prev.slice(0, navIndex + 1);
+          return [...trimmed, next].slice(-30);
+        });
+        setNavIndex((prev) => Math.min(29, prev + 1));
+      }
       if (next !== "search") {
         setQuery("");
         setSearchError("");
@@ -784,26 +958,79 @@ export function TimeMachine() {
       }
       window.scrollTo({ top: 0, behavior: "smooth" });
     },
-    [view, historyIndex]
+    [view, navIndex]
   );
 
   const goBack = useCallback(() => {
-    if (historyIndex > 0) {
-      const nextIdx = historyIndex - 1;
-      setHistoryIndex(nextIdx);
-      setView(viewHistory[nextIdx]);
-      window.scrollTo({ top: 0, behavior: "smooth" });
-    }
-  }, [historyIndex, viewHistory]);
+    if (navIndex <= 0) return;
+    const targetIdx = navIndex - 1;
+    const targetView = navHistory[targetIdx];
+    if (!targetView) return;
+    setNavIndex(targetIdx);
+    navigate(targetView, false);
+  }, [navHistory, navIndex, navigate]);
 
   const goForward = useCallback(() => {
-    if (historyIndex < viewHistory.length - 1) {
-      const nextIdx = historyIndex + 1;
-      setHistoryIndex(nextIdx);
-      setView(viewHistory[nextIdx]);
-      window.scrollTo({ top: 0, behavior: "smooth" });
+    if (navIndex >= navHistory.length - 1) return;
+    const targetIdx = navIndex + 1;
+    const targetView = navHistory[targetIdx];
+    if (!targetView) return;
+    setNavIndex(targetIdx);
+    navigate(targetView, false);
+  }, [navHistory, navIndex, navigate]);
+
+  const openArtist = useCallback(
+    (artistName: string) => {
+      const clean = artistName.trim();
+      if (!clean) return;
+      setSelectedArtist(clean);
+      navigate("artist");
+    },
+    [navigate]
+  );
+
+  const openPlaylist = useCallback(
+    (id: string) => {
+      setSelectedPlaylistId(id);
+      navigate("playlists");
+    },
+    [navigate]
+  );
+
+  const saveRecentSearch = useCallback((term: string) => {
+    const clean = term.trim();
+    if (clean.length < 2) return;
+    setRecentSearches((prev) => {
+      const next = [clean, ...prev.filter((item) => item.toLowerCase() !== clean.toLowerCase())].slice(0, 8);
+      try {
+        localStorage.setItem(RECENT_SEARCHES_KEY, JSON.stringify(next));
+      } catch {
+        /* optional */
+      }
+      return next;
+    });
+  }, []);
+
+  const removeRecentSearch = useCallback((term: string) => {
+    setRecentSearches((prev) => {
+      const next = prev.filter((item) => item !== term);
+      try {
+        localStorage.setItem(RECENT_SEARCHES_KEY, JSON.stringify(next));
+      } catch {
+        /* optional */
+      }
+      return next;
+    });
+  }, []);
+
+  const clearRecentSearches = useCallback(() => {
+    setRecentSearches([]);
+    try {
+      localStorage.removeItem(RECENT_SEARCHES_KEY);
+    } catch {
+      /* optional */
     }
-  }, [historyIndex, viewHistory]);
+  }, []);
 
   const favorite = async (track: TimeTrack) => {
     const existing = library.favorites.find(
@@ -891,6 +1118,7 @@ export function TimeMachine() {
         setResults(songs);
         setSearchedFor(value);
         setSearching(false);
+        saveRecentSearch(value);
         if (autoplay && songs[0]) playerChooseRef.current(songs[0], songs);
       } catch (error) {
         if (controller.signal.aborted || id !== searchId.current) return;
@@ -903,7 +1131,7 @@ export function TimeMachine() {
         );
       }
     },
-    [allTracks]
+    [allTracks, saveRecentSearch]
   );
 
   useEffect(() => {
@@ -911,11 +1139,13 @@ export function TimeMachine() {
     if (value.length < 2) {
       searchAbort.current?.abort();
       searchId.current++;
-      setSearching(false);
-      setResults((prev) => (prev.length === 0 ? prev : []));
-      return;
+      const clearTimer = window.setTimeout(() => {
+        setSearching(false);
+        setResults((prev) => (prev.length === 0 ? prev : []));
+      }, 0);
+      return () => window.clearTimeout(clearTimer);
     }
-    searchTimer.current = setTimeout(() => void runSearch(value), 550);
+    searchTimer.current = setTimeout(() => void runSearch(value), 420);
     return () => {
       if (searchTimer.current) clearTimeout(searchTimer.current);
     };
@@ -1043,32 +1273,117 @@ export function TimeMachine() {
     }
   };
 
-  const clearAllDownloads = useCallback(async () => {
-    if (confirm("Delete all downloaded songs from this list and your computer?")) {
-      for (const song of downloadedSongs) {
-        if (song.filePath && isTauriEnvironment()) {
-          await deleteDownloadedTrack(song.filePath);
-        }
+  const handleBatchDownloadPlaylist = useCallback(
+    async (playlist: ActivePlaylistDisplay) => {
+      if (!isTauriEnvironment()) {
+        notify("Offline batch downloads require the Rewind desktop app.");
+        return;
       }
-      setDownloadedSongs([]);
-      localStorage.removeItem("rewind-downloaded-songs");
-      notify("All downloaded songs cleared.");
+      const existingVideoIds = new Set(
+        downloadedSongs
+          .filter((s) => (s.downloadStatus || "downloaded") === "downloaded")
+          .map((s) => s.videoId)
+      );
+      const pending = playlist.tracks.filter((t) => t.videoId && !existingVideoIds.has(t.videoId));
+      if (!pending.length) {
+        notify(`All tracks in "${playlist.title}" are already downloaded.`);
+        return;
+      }
+
+      batchDownloadCancelledRef.current = false;
+      setBatchDownload({
+        playlistId: playlist.id,
+        title: playlist.title,
+        completed: 0,
+        total: pending.length,
+        active: true,
+      });
+      notify(`Downloading ${pending.length} track${pending.length === 1 ? "" : "s"} from "${playlist.title}"…`);
+
+      let completed = 0;
+      let cursor = 0;
+      const runWorker = async () => {
+        while (cursor < pending.length && !batchDownloadCancelledRef.current) {
+          const track = pending[cursor++];
+          if (!track) break;
+          await downloadTrackOffline({
+            videoId: track.videoId,
+            title: track.title,
+            artist: track.artist,
+            album: track.album,
+            year: track.year,
+            genre: track.genre,
+            duration: track.duration,
+            cover: track.cover,
+          });
+          completed += 1;
+          setBatchDownload((prev) =>
+            prev ? { ...prev, completed } : null
+          );
+        }
+      };
+
+      await Promise.all([runWorker(), runWorker()]);
+      setBatchDownload(null);
       void syncDownloads(true);
-    }
+      notify(
+        batchDownloadCancelledRef.current
+          ? `Batch download cancelled (${completed}/${pending.length} saved)`
+          : `Downloaded ${completed} track${completed === 1 ? "" : "s"} from "${playlist.title}"`
+      );
+    },
+    [downloadedSongs, notify, syncDownloads]
+  );
+
+  const cancelBatchDownload = useCallback(() => {
+    batchDownloadCancelledRef.current = true;
+    notify("Stopping batch download…");
+  }, [notify]);
+
+  const clearAllDownloads = useCallback(() => {
+    setConfirmState({
+      title: "Clear all downloaded songs?",
+      description: `This permanently deletes ${downloadedSongs.length} audio file${downloadedSongs.length === 1 ? "" : "s"} from your Rewind Downloads folder.`,
+      confirmLabel: "Delete All",
+      destructive: true,
+      onConfirm: () => {
+        setConfirmState(null);
+        void (async () => {
+          for (const song of downloadedSongs) {
+            if (song.filePath && isTauriEnvironment()) {
+              await deleteDownloadedTrack(song.filePath);
+            }
+          }
+          setDownloadedSongs([]);
+          localStorage.removeItem("rewind-downloaded-songs");
+          notify("All downloaded songs cleared.");
+          void syncDownloads(true);
+        })();
+      },
+    });
   }, [downloadedSongs, notify, syncDownloads]);
 
   const deleteSingleDownload = useCallback(
-    async (song: DownloadedSong) => {
-      if (confirm(`Delete "${song.title}" from your computer?`)) {
-        if (song.filePath && isTauriEnvironment()) {
-          await deleteDownloadedTrack(song.filePath);
-        }
-        const next = downloadedSongs.filter((s) => s.id !== song.id);
-        setDownloadedSongs(next);
-        localStorage.setItem("rewind-downloaded-songs", JSON.stringify(next));
-        notify(`Deleted "${song.title}".`);
-        void syncDownloads(true);
-      }
+    (song: DownloadedSong) => {
+      setConfirmState({
+        title: `Delete "${song.title}"?`,
+        description: "This will remove the downloaded audio file from your computer.",
+        confirmLabel: "Delete File",
+        destructive: true,
+        onConfirm: () => {
+          setConfirmState(null);
+          void (async () => {
+            if (song.filePath && isTauriEnvironment()) {
+              await deleteDownloadedTrack(song.filePath);
+            }
+            const next = downloadedSongs.filter((s) => s.id !== song.id);
+            setDownloadedSongs(next);
+            localStorage.setItem("rewind-downloaded-songs", JSON.stringify(next));
+            notify(`Deleted "${song.title}".`);
+            void syncDownloads(true);
+          })();
+        },
+      });
     },
     [downloadedSongs, notify, syncDownloads]
   );
@@ -1110,6 +1425,9 @@ export function TimeMachine() {
               break;
             case "hide":
               void hideMiniPlayerWindow();
+              break;
+            case "restoreMain":
+              void restoreMainWindow();
               break;
           }
         }
@@ -1188,10 +1506,6 @@ export function TimeMachine() {
     setDetails(null);
   }, []);
 
-  const handleCloseInfo = useCallback(() => {
-    setInfoOpen(false);
-  }, []);
-
   const handleMinimize = useCallback(async (e?: React.MouseEvent) => {
     e?.stopPropagation();
     // Show the companion first. Once the main window is minimized, its WebView
@@ -1221,29 +1535,39 @@ export function TimeMachine() {
     }
   }, []);
 
-  // Initial load runs once on mount
+  // Initial load runs once on mount (deferred to avoid synchronous setState-in-effect warnings)
   useEffect(() => {
-    setToday(localDay(new Date()));
-    try {
-      const saved = localStorage.getItem("rewind-downloaded-songs");
-      if (saved) setDownloadedSongs(JSON.parse(saved));
-      const savedPlaylists = localStorage.getItem("rewind-user-playlists");
-      if (savedPlaylists) setCustomPlaylists(JSON.parse(savedPlaylists));
-      const savedTheme = localStorage.getItem("rewind-app-theme") as AppTheme | null;
-      if (savedTheme) setTheme(savedTheme);
-    } catch {
-      /* empty */
-    }
+    const initTimer = window.setTimeout(() => {
+      setToday(localDay(new Date()));
+      try {
+        const saved = localStorage.getItem("rewind-downloaded-songs");
+        if (saved) setDownloadedSongs(JSON.parse(saved));
+        const savedPlaylists = localStorage.getItem("rewind-user-playlists");
+        if (savedPlaylists) setCustomPlaylists(JSON.parse(savedPlaylists));
+        const savedTheme = localStorage.getItem("rewind-app-theme") as AppTheme | null;
+        if (savedTheme) setTheme(savedTheme);
+        const savedRecent = localStorage.getItem(RECENT_SEARCHES_KEY);
+        if (savedRecent) {
+          const parsedRecent = JSON.parse(savedRecent);
+          if (Array.isArray(parsedRecent)) {
+            setRecentSearches(parsedRecent.filter((s): s is string => typeof s === "string").slice(0, 8));
+          }
+        }
+      } catch {
+        /* empty */
+      }
 
-    if (isTauriEnvironment()) {
-      setIsElectron(true);
-      getDownloadsPath()
-        .then((p) => {
-          if (p) setElectronDownloadsPath(p);
-        })
-        .catch(() => {});
-      void syncDownloads(true);
-    }
+      if (isTauriEnvironment()) {
+        setIsElectron(true);
+        getDownloadsPath()
+          .then((p) => {
+            if (p) setElectronDownloadsPath(p);
+          })
+          .catch(() => {});
+        void syncDownloads(true);
+      }
+    }, 0);
+    return () => window.clearTimeout(initTimer);
   }, [syncDownloads]);
 
   const playerToggleRef = useRef(player.toggle);
@@ -1258,8 +1582,8 @@ export function TimeMachine() {
     muted: player.muted,
     setShuffle: player.setShuffle,
     shuffle: player.shuffle,
-    setRepeat: player.setRepeat,
-    repeat: player.repeat,
+    cycleRepeatMode: player.cycleRepeatMode,
+    repeatMode: player.repeatMode,
   });
   useEffect(() => {
     playerShortcutRef.current = {
@@ -1269,10 +1593,10 @@ export function TimeMachine() {
       muted: player.muted,
       setShuffle: player.setShuffle,
       shuffle: player.shuffle,
-      setRepeat: player.setRepeat,
-      repeat: player.repeat,
+      cycleRepeatMode: player.cycleRepeatMode,
+      repeatMode: player.repeatMode,
     };
-  }, [player.next, player.previous, player.setMuted, player.muted, player.setShuffle, player.shuffle, player.setRepeat, player.repeat]);
+  }, [player.next, player.previous, player.setMuted, player.muted, player.setShuffle, player.shuffle, player.cycleRepeatMode, player.repeatMode]);
 
   // Desktop-style playback shortcuts. Text fields and dialogs retain normal typing.
   useEffect(() => {
@@ -1282,9 +1606,16 @@ export function TimeMachine() {
         input.isContentEditable ||
         ["INPUT", "TEXTAREA", "SELECT", "BUTTON"].includes(input.tagName);
       const key = event.key.toLowerCase();
+      if ((event.metaKey || event.ctrlKey) && key === "k") {
+        event.preventDefault();
+        setCommandPaletteOpen((open) => !open);
+        return;
+      }
       if (event.metaKey || event.ctrlKey || event.altKey) return;
       if (key === "escape") {
         setQueueOpen(false);
+        setLyricsOpen(false);
+        setCommandPaletteOpen(false);
         return;
       }
       if (editing || document.querySelector('[aria-modal="true"]')) return;
@@ -1300,16 +1631,26 @@ export function TimeMachine() {
         event.preventDefault();
         actions.previous();
       } else if (key === "m") {
-        actions.setMuted(!actions.muted);
-        notify(actions.muted ? "Muted" : "Sound on");
+        const nextMuted = !actions.muted;
+        actions.setMuted(nextMuted);
+        notify(nextMuted ? "Muted" : "Sound on");
       } else if (key === "s") {
-        actions.setShuffle(!actions.shuffle);
-        notify(actions.shuffle ? "Shuffle off" : "Shuffle on");
+        const nextShuffle = !actions.shuffle;
+        actions.setShuffle(nextShuffle);
+        notify(nextShuffle ? "Shuffle on" : "Shuffle off");
       } else if (key === "r") {
-        actions.setRepeat(!actions.repeat);
-        notify(actions.repeat ? "Repeat off" : "Repeat on");
+        const nextRepeat = actions.cycleRepeatMode();
+        notify(
+          nextRepeat === "all"
+            ? "Repeat queue"
+            : nextRepeat === "one"
+            ? "Repeat track"
+            : "Repeat off"
+        );
       } else if (key === "q") {
         setQueueOpen((open) => !open);
+      } else if (key === "l") {
+        setLyricsOpen((open) => !open);
       } else if (key === "/" || key === "f") {
         event.preventDefault();
         setView("search");
@@ -1337,7 +1678,8 @@ export function TimeMachine() {
 
   useEffect(() => {
     if (view === "downloads" && isTauriEnvironment()) {
-      void syncDownloads(true);
+      const timer = window.setTimeout(() => void syncDownloads(true), 0);
+      return () => window.clearTimeout(timer);
     }
   }, [view, syncDownloads]);
 
@@ -1352,7 +1694,7 @@ export function TimeMachine() {
   return (
     <div
       className={`rewind-app theme-${theme} ${
-        theme === "midnight" || theme === "cyberpunk" ? "dark-theme" : "light-theme"
+        theme === "aurora" || theme === "midnight" || theme === "cyberpunk" ? "dark-theme" : "light-theme"
       }`}
     >
       {/* NUCLEAR-STYLE UNIFIED TOPBAR */}
@@ -1361,15 +1703,16 @@ export function TimeMachine() {
         query={query}
         setQuery={setQuery}
         activePlaylist={activePlaylist}
-        historyIndex={historyIndex}
-        viewHistoryLength={viewHistory.length}
         isMaximized={isMaximized}
         isElectron={isElectron}
         totalTracksCount={allTracks.length}
+        canGoBack={navIndex > 0}
+        canGoForward={navIndex < navHistory.length - 1}
         searchInputRef={searchInput}
         onNavigate={navigate}
         onGoBack={goBack}
         onGoForward={goForward}
+        onOpenCommandPalette={() => setCommandPaletteOpen(true)}
         onRunSearch={runSearch}
         onShuffleAll={shuffleAll}
         onMinimize={handleMinimize}
@@ -1387,11 +1730,11 @@ export function TimeMachine() {
         onNavigate={navigate}
         onOpenPlaylist={openPlaylist}
         onOpenNewPlaylistModal={() => setNewPlaylistOpen(true)}
-        onOpenInfoModal={() => setInfoOpen(true)}
       />
 
       {/* MAIN WORKSPACE VIEW ROUTING */}
       <div className="rewind-workspace">
+        <div className={`rewind-content-layout ${view === "explore" ? "has-home-rail" : ""}`}>
         <main className="rewind-main">
           {spotifySync.active && (
             <div className="playlist-sync-banner" role="status" aria-live="polite">
@@ -1412,18 +1755,6 @@ export function TimeMachine() {
               <button type="button" onClick={() => navigate("downloads")}>Manage downloads</button>
             </div>
           )}
-          {appUpdates.status === "available" && appUpdates.latestRelease && (
-            <div className="app-update-banner" role="status" aria-live="polite">
-              <span><strong>Rewind {appUpdates.latestRelease.version} is available</strong> · You are running {appUpdates.currentVersion}</span>
-              <button
-                type="button"
-                onClick={() => void openUpdateDownload(appUpdates.latestRelease?.installer?.browserDownloadUrl || appUpdates.latestRelease?.releaseUrl || "")}
-                disabled={!appUpdates.latestRelease.installer && !appUpdates.latestRelease.releaseUrl}
-              >
-                Download update
-              </button>
-            </div>
-          )}
           {view === "explore" && (
             <ExploreView
               allTracksCount={allTracks.length}
@@ -1434,22 +1765,28 @@ export function TimeMachine() {
               personalizedTracks={personalizedTracks}
               currentTrackVideoId={player.track?.videoId}
               isPlaying={playing}
+              smartQueueMode={player.smartQueueMode}
+              autoQueueEnabled={player.autoQueueEnabled}
               isSaved={isSaved}
               onNavigate={navigate}
               onOpenPlaylist={openPlaylist}
               onPlayPlaylist={playPlaylist}
+              onAddPlaylistToQueue={queuePlaylist}
               onChooseTrack={player.choose}
               onPlayNext={(track) => {
                 player.playNext(track);
                 notify(`Playing "${track.title}" next`);
               }}
-              onAddToQueue={(track) => {
-                player.addToQueue(track);
-                notify(`Added "${track.title}" to queue`);
-              }}
+              onAddToQueue={handleAddToQueue}
+              onStartRadio={(track) => handleStartSongRadio(track)}
+              onLaunchSmartQueueMode={handleLaunchSmartQueueMode}
               onOpenAddToPlaylist={setAddToPlaylistTrack}
               onToggleFavorite={favorite}
+              isPlaylistSaved={isPlaylistSaved}
+              onTogglePlaylistSaved={togglePlaylistSaved}
               onDownload={triggerDownload}
+              onOpenDetails={setDetails}
+              onOpenArtist={openArtist}
             />
           )}
 
@@ -1462,23 +1799,27 @@ export function TimeMachine() {
               currentTrackVideoId={player.track?.videoId}
               isPlaying={playing}
               isSaved={isSaved}
+              batchDownload={batchDownload}
               onSelectPlaylist={setSelectedPlaylistId}
               onOpenNewPlaylistModal={() => setNewPlaylistOpen(true)}
               onPlayPlaylist={playPlaylist}
               onDeletePlaylist={handleDeletePlaylist}
+              onRenamePlaylist={handleRenamePlaylist}
+              onBatchDownloadPlaylist={(pl) => void handleBatchDownloadPlaylist(pl)}
+              onCancelBatchDownload={cancelBatchDownload}
               onNavigate={navigate}
               onChooseTrack={player.choose}
               onPlayNext={(track) => {
                 player.playNext(track);
                 notify(`Playing "${track.title}" next`);
               }}
-              onAddToQueue={(track) => {
-                player.addToQueue(track);
-                notify(`Added "${track.title}" to queue`);
-              }}
+              onAddToQueue={handleAddToQueue}
+              onStartRadio={(track) => handleStartSongRadio(track)}
               onOpenAddToPlaylist={setAddToPlaylistTrack}
               onToggleFavorite={favorite}
               onDownload={triggerDownload}
+              onOpenDetails={setDetails}
+              onOpenArtist={openArtist}
               onRemoveTrackFromPlaylist={handleRemoveTrackFromPlaylist}
               onExportPlaylists={handleExportPlaylists}
               onImportPlaylists={(file) => void handleImportPlaylists(file)}
@@ -1494,20 +1835,45 @@ export function TimeMachine() {
               searching={searching}
               searchError={searchError}
               results={results}
+              recentSearches={recentSearches}
               currentTrackVideoId={player.track?.videoId}
               isPlaying={playing}
               isSaved={isSaved}
               onSetQuery={setQuery}
               onRunSearch={runSearch}
+              onRemoveRecentSearch={removeRecentSearch}
+              onClearRecentSearches={clearRecentSearches}
               onChooseTrack={player.choose}
               onPlayNext={(track) => {
                 player.playNext(track);
                 notify(`Playing "${track.title}" next`);
               }}
-              onAddToQueue={(track) => {
-                player.addToQueue(track);
-                notify(`Added "${track.title}" to queue`);
+              onAddToQueue={handleAddToQueue}
+              onStartRadio={(track) => handleStartSongRadio(track)}
+              onOpenAddToPlaylist={setAddToPlaylistTrack}
+              onToggleFavorite={favorite}
+              onDownload={triggerDownload}
+              onOpenDetails={setDetails}
+              onOpenArtist={openArtist}
+            />
+          )}
+
+          {view === "artist" && selectedArtist && (
+            <ArtistView
+              artistName={selectedArtist}
+              localTracks={recommendationPool}
+              currentTrackVideoId={player.track?.videoId}
+              isPlaying={playing}
+              isSaved={isSaved}
+              onBack={goBack}
+              onOpenArtist={openArtist}
+              onChooseTrack={player.choose}
+              onPlayNext={(track) => {
+                player.playNext(track);
+                notify(`Playing "${track.title}" next`);
               }}
+              onAddToQueue={handleAddToQueue}
+              onStartRadio={(track) => handleStartSongRadio(track)}
               onOpenAddToPlaylist={setAddToPlaylistTrack}
               onToggleFavorite={favorite}
               onDownload={triggerDownload}
@@ -1531,13 +1897,13 @@ export function TimeMachine() {
                 player.playNext(track);
                 notify(`Playing "${track.title}" next`);
               }}
-              onAddToQueue={(track) => {
-                player.addToQueue(track);
-                notify(`Added "${track.title}" to queue`);
-              }}
+              onAddToQueue={handleAddToQueue}
+              onStartRadio={(track) => handleStartSongRadio(track)}
               onOpenAddToPlaylist={setAddToPlaylistTrack}
               onToggleFavorite={favorite}
               onDownload={triggerDownload}
+              onOpenDetails={setDetails}
+              onOpenArtist={openArtist}
               onPlayLikedRadio={playLikedRadio}
             />
           )}
@@ -1559,13 +1925,13 @@ export function TimeMachine() {
                 player.playNext(track);
                 notify(`Playing "${track.title}" next`);
               }}
-              onAddToQueue={(track) => {
-                player.addToQueue(track);
-                notify(`Added "${track.title}" to queue`);
-              }}
+              onAddToQueue={handleAddToQueue}
+              onStartRadio={(track) => handleStartSongRadio(track)}
               onOpenAddToPlaylist={setAddToPlaylistTrack}
               onToggleFavorite={favorite}
               onDownload={triggerDownload}
+              onOpenDetails={setDetails}
+              onOpenArtist={openArtist}
               onPlayLikedRadio={playLikedRadio}
             />
           )}
@@ -1613,6 +1979,31 @@ export function TimeMachine() {
               onNavigate={navigate}
               crossfadeSeconds={player.crossfadeSeconds}
               onSetCrossfadeSeconds={player.setCrossfadeSeconds}
+              autoQueueEnabled={player.autoQueueEnabled}
+              onToggleAutoQueue={(enabled) => {
+                player.setAutoQueueEnabled(enabled);
+                notify(enabled ? "Auto-Queue enabled" : "Auto-Queue paused");
+              }}
+              smartQueueMode={player.smartQueueMode}
+              onSelectSmartQueueMode={(mode) => {
+                player.setSmartQueueMode(mode, true);
+                notify(`Smart Queue switched to ${getSmartQueueMode(mode).label}`);
+              }}
+              eqState={player.eqState}
+              onSetEqEnabled={(enabled) => {
+                player.setEqEnabled(enabled);
+                notify(enabled ? "Studio Equalizer enabled" : "Studio Equalizer bypassed");
+              }}
+              onSetEqBandGain={player.setEqBandGain}
+              onSetBassBoost={player.setBassBoost}
+              onApplyEqPreset={(preset) => {
+                player.applyEqPreset(preset);
+                notify(`EQ Preset: ${preset}`);
+              }}
+              onSetPlaybackSpeed={(speed) => {
+                player.setPlaybackSpeed(speed);
+                notify(`Playback speed: ${speed}x`);
+              }}
               appUpdates={appUpdates}
             />
           )}
@@ -1629,9 +2020,37 @@ export function TimeMachine() {
               <Rewind size={13} />
               REWIND MUSIC PLAYER
             </span>
-            <span>POWERED BY YOUTUBE EMBEDS · FULL RECORDINGS</span>
+            <span>NATIVE DESKTOP AUDIO · FULL RECORDINGS</span>
           </footer>
         </main>
+        {view === "explore" && (
+          <HomeRightRail
+            allTracks={allTracks}
+            currentTrack={player.track}
+            queue={player.queue}
+            autoQueuedIds={player.autoQueuedIds}
+            autoQueueEnabled={player.autoQueueEnabled}
+            playerStatus={player.status}
+            isPlaying={playing}
+            position={player.position}
+            duration={player.duration}
+            isSaved={isSaved(player.track)}
+            featuredPlaylist={curatedPlaylists[0]}
+            onChooseTrack={player.choose}
+            onSeek={(pos) => void player.seek(pos)}
+            onToggleFavorite={favorite}
+            onOpenQueue={() => setQueueOpen((open) => !open)}
+            onOpenLyrics={() => setLyricsOpen(true)}
+            onStartRadio={(track) => {
+              handleStartSongRadio(track);
+              setQueueOpen(true);
+            }}
+            onOpenArtist={openArtist}
+            onNavigate={navigate}
+            onPlayPlaylist={playPlaylist}
+          />
+        )}
+        </div>
       </div>
 
       {/* MOBILE NAVIGATION */}
@@ -1654,9 +2073,15 @@ export function TimeMachine() {
         volume={player.volume}
         muted={player.muted}
         shuffle={player.shuffle}
-        repeat={player.repeat}
+        repeatMode={player.repeatMode}
+        autoQueueEnabled={player.autoQueueEnabled}
+        queueCount={player.queue.length}
+        isRefillingAutoQueue={player.isRefillingAutoQueue}
+        eqEnabled={player.eqState.enabled}
+        playbackSpeed={player.eqState.playbackSpeed}
         isSaved={isSaved(player.track)}
         queueOpen={queueOpen}
+        lyricsOpen={lyricsOpen}
         onTogglePlay={() => void player.toggle()}
         onPrevious={player.previous}
         onNext={player.next}
@@ -1664,29 +2089,58 @@ export function TimeMachine() {
         onSetVolume={player.setVolume}
         onSetMuted={player.setMuted}
         onSetShuffle={player.setShuffle}
-        onSetRepeat={player.setRepeat}
+        onCycleRepeat={() => {
+          const mode = player.cycleRepeatMode();
+          notify(mode === "all" ? "Repeat queue" : mode === "one" ? "Repeat track" : "Repeat off");
+        }}
         onToggleFavorite={favorite}
         onDownload={triggerDownload}
-         onOpenDetails={setDetails}
-         onToggleQueue={() => setQueueOpen(!queueOpen)}
-         similarTrackCount={similarTracks.length}
-         onPlaySimilar={playSimilarTracks}
-         sleepTimerActive={sleepTimer.isActive}
-         sleepTimerRemainingSeconds={sleepTimer.remainingSeconds}
-         sleepTimerDurations={sleepTimer.durations}
-         onStartSleepTimer={(minutes) => {
-           sleepTimer.start(minutes as (typeof sleepTimer.durations)[number]);
-           notify(`Sleep timer set for ${minutes} minutes.`);
-         }}
-         onCancelSleepTimer={() => {
-           sleepTimer.cancel();
-           notify("Sleep timer cancelled.");
-         }}
-       />
+        onOpenDetails={setDetails}
+        onOpenArtist={openArtist}
+        onOpenEq={() => {
+          navigate("settings");
+          window.setTimeout(() => {
+            document.getElementById("studio-eq")?.scrollIntoView({ behavior: "smooth", block: "start" });
+          }, 80);
+        }}
+        onToggleLyrics={() => setLyricsOpen((open) => !open)}
+        onToggleQueue={() => setQueueOpen(!queueOpen)}
+        onStartRadio={() => {
+          handleStartSongRadio(player.track);
+          setQueueOpen(true);
+        }}
+        sleepTimerActive={sleepTimer.isActive}
+        sleepTimerStopAfterCurrent={sleepTimer.stopAfterCurrentTrack}
+        sleepTimerIsFading={sleepTimer.isFadingOut}
+        sleepTimerRemainingSeconds={sleepTimer.remainingSeconds}
+        sleepTimerDurations={sleepTimer.durations}
+        onStartSleepTimer={(minutes) => {
+          sleepTimer.start(minutes as (typeof sleepTimer.durations)[number]);
+          notify(`Sleep timer set for ${minutes} minutes (with smooth 10s fade-out).`);
+        }}
+        onStartSleepStopAfterCurrent={() => {
+          sleepTimer.startStopAfterCurrent();
+          notify("Playback will pause after this track.");
+        }}
+        onCancelSleepTimer={() => {
+          sleepTimer.cancel();
+          notify("Sleep timer cancelled.");
+        }}
+      />
 
       {/* PURE HTML5 AUDIO ELEMENT */}
-      <audio {...player.audioProps} preload="auto" style={{ display: "none" }} />
-      <audio {...player.transitionAudioProps} preload="auto" style={{ display: "none" }} />
+      <audio
+        {...player.audioProps}
+        crossOrigin={player.eqState.enabled ? "anonymous" : undefined}
+        preload="auto"
+        style={{ display: "none" }}
+      />
+      <audio
+        {...player.transitionAudioProps}
+        crossOrigin={player.eqState.enabled ? "anonymous" : undefined}
+        preload="auto"
+        style={{ display: "none" }}
+      />
 
       {player.error && (
         <div className="playback-toast-error" role="status">
@@ -1700,12 +2154,20 @@ export function TimeMachine() {
         <QueueDrawer
           currentTrack={player.track}
           queue={player.queue}
+          autoQueuedIds={player.autoQueuedIds}
+          autoQueueEnabled={player.autoQueueEnabled}
+          smartQueueMode={player.smartQueueMode}
+          isRefillingAutoQueue={player.isRefillingAutoQueue}
           onClose={() => setQueueOpen(false)}
           onClearQueue={() => {
-            player.clearQueue();
-            notify("Queue cleared");
+            player.clearQueue(false);
+            notify("Cleared upcoming queue");
           }}
           onChooseTrack={player.choose}
+          onPlayNext={(track) => {
+            player.playNext(track);
+            notify(`Playing "${track.title}" next`);
+          }}
           onRemoveFromQueue={(index) => {
             const track = player.queue[index];
             player.removeFromQueue(index);
@@ -1714,6 +2176,22 @@ export function TimeMachine() {
           onReorderQueue={(fromIndex, toIndex) => {
             player.reorderQueue(fromIndex, toIndex);
             notify("Queue order updated");
+          }}
+          onToggleAutoQueue={(enabled) => {
+            player.setAutoQueueEnabled(enabled);
+            notify(enabled ? "Auto-Queue enabled" : "Auto-Queue paused");
+          }}
+          onSelectSmartQueueMode={(mode) => {
+            player.setSmartQueueMode(mode, true);
+            notify(`Auto-Queue tuned to ${getSmartQueueMode(mode).label}`);
+          }}
+          onStartSongRadio={(track) => handleStartSongRadio(track)}
+          onRefreshAutoQueue={() => {
+            player.refreshAutoQueue();
+            notify(`Refreshing ${getSmartQueueMode(player.smartQueueMode).label} queue…`);
+          }}
+          onSaveQueueAsPlaylist={(title, tracks) => {
+            handleCreatePlaylist(title, `Saved Queue · ${tracks.length} tracks`, undefined, tracks);
           }}
         />
       )}
@@ -1744,14 +2222,61 @@ export function TimeMachine() {
         isSaved={details ? isSaved(details) : false}
         onClose={handleCloseDetails}
         onPlay={(track) => player.choose(track, [track])}
+        onSeek={(seconds) => void player.seek(seconds)}
         onToggleFavorite={favorite}
         onDownload={triggerDownload}
       />
 
-      {/* ABOUT DIALOG */}
-      <AboutDialog
-        isOpen={infoOpen}
-        onClose={handleCloseInfo}
+      {/* SYNCED LYRICS THEATER */}
+      <LyricsOverlay
+        open={lyricsOpen}
+        track={player.track}
+        playing={playing}
+        position={player.position}
+        duration={player.duration}
+        isSaved={isSaved(player.track)}
+        onClose={() => setLyricsOpen(false)}
+        onTogglePlay={() => void player.toggle()}
+        onPrevious={player.previous}
+        onNext={player.next}
+        onSeek={(seconds) => void player.seek(seconds)}
+        onToggleFavorite={favorite}
+        onDownload={triggerDownload}
+        onStartRadio={(track) => {
+          handleStartSongRadio(track);
+          setQueueOpen(true);
+        }}
+        onOpenArtist={openArtist}
+      />
+
+      {/* COMMAND PALETTE (Ctrl+K) */}
+      <CommandPalette
+        open={commandPaletteOpen}
+        curatedPlaylists={curatedPlaylists}
+        customPlaylists={customPlaylists}
+        onClose={() => setCommandPaletteOpen(false)}
+        onNavigate={navigate}
+        onOpenPlaylist={openPlaylist}
+        onLaunchSmartQueueMode={handleLaunchSmartQueueMode}
+        onSelectTheme={handleSelectTheme}
+        onToggleQueue={() => setQueueOpen((open) => !open)}
+        onOpenLyrics={() => setLyricsOpen(true)}
+        onShuffleAll={shuffleAll}
+        onRunSearch={(term) => {
+          setQuery(term);
+          void runSearch(term, false);
+        }}
+      />
+
+      {/* STYLED CONFIRMATION DIALOG */}
+      <ConfirmDialog
+        open={Boolean(confirmState)}
+        title={confirmState?.title || ""}
+        description={confirmState?.description || ""}
+        confirmLabel={confirmState?.confirmLabel || "Confirm"}
+        destructive={confirmState?.destructive}
+        onConfirm={() => confirmState?.onConfirm()}
+        onCancel={() => setConfirmState(null)}
       />
 
       {/* TOAST NOTIFICATION */}

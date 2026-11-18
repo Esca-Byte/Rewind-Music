@@ -20,9 +20,12 @@ interface LibraryViewProps {
   onChooseTrack: (track: TimeTrack, list: TimeTrack[]) => void;
   onPlayNext: (track: TimeTrack) => void;
   onAddToQueue: (track: TimeTrack) => void;
+  onStartRadio: (track: TimeTrack) => void;
   onOpenAddToPlaylist: (track: TimeTrack) => void;
   onToggleFavorite: (track: TimeTrack) => void;
   onDownload: (track: TimeTrack) => void;
+  onOpenDetails: (track: TimeTrack) => void;
+  onOpenArtist: (artist: string) => void;
   onPlayLikedRadio: () => void;
 }
 
@@ -45,9 +48,12 @@ export function LibraryView({
   onChooseTrack,
   onPlayNext,
   onAddToQueue,
+  onStartRadio,
   onOpenAddToPlaylist,
   onToggleFavorite,
   onDownload,
+  onOpenDetails,
+  onOpenArtist,
   onPlayLikedRadio,
 }: LibraryViewProps) {
   if (mode === "collection") {
@@ -85,9 +91,12 @@ export function LibraryView({
                 onChoose={onChooseTrack}
                 onPlayNext={onPlayNext}
                 onAddToQueue={onAddToQueue}
+                onStartRadio={onStartRadio}
                 onOpenAddToPlaylist={onOpenAddToPlaylist}
                 onToggleFavorite={onToggleFavorite}
                 onDownload={onDownload}
+                onOpenDetails={onOpenDetails}
+                onOpenArtist={onOpenArtist}
               />
             ))}
           </div>
@@ -180,9 +189,12 @@ export function LibraryView({
                 onChoose={onChooseTrack}
                 onPlayNext={onPlayNext}
                 onAddToQueue={onAddToQueue}
+                onStartRadio={onStartRadio}
                 onOpenAddToPlaylist={onOpenAddToPlaylist}
                 onToggleFavorite={onToggleFavorite}
                 onDownload={onDownload}
+                onOpenDetails={onOpenDetails}
+                onOpenArtist={onOpenArtist}
               />
             ))}
           </div>

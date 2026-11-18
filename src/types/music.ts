@@ -54,9 +54,9 @@ export interface DownloadedSong {
   downloadStatus?: "downloading" | "downloaded" | "error";
 }
 
-export type View = "explore" | "playlists" | "collection" | "memories" | "downloads" | "stats" | "search" | "settings";
+export type View = "explore" | "playlists" | "collection" | "memories" | "downloads" | "stats" | "search" | "settings" | "artist";
 
-export type AppTheme = "analog" | "midnight" | "nordic" | "cyberpunk" | "sunset";
+export type AppTheme = "aurora" | "analog" | "midnight" | "nordic" | "cyberpunk" | "sunset";
 
 export interface ThemeOption {
   id: AppTheme;

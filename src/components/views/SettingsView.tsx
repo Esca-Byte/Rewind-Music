@@ -14,8 +14,18 @@ import {
   Zap,
   RefreshCw,
   DownloadCloud,
+  Infinity as InfinityIcon,
+  SlidersHorizontal,
+  Gauge,
 } from "lucide-react";
 import type { AppTheme, ThemeOption, View } from "@/types/music";
+import { SMART_QUEUE_MODES, type SmartQueueModeId } from "@/lib/time/smart-queue";
+import {
+  EQ_BAND_META,
+  EQ_PRESETS,
+  PLAYBACK_SPEED_OPTIONS,
+  type StudioEqState,
+} from "@/lib/audio-eq";
 import { openDownloadsFolder } from "@/lib/tauri-audio";
 import { openUpdateDownload } from "@/lib/app-updates";
 import type { AppUpdatesState } from "@/components/time/use-app-updates";
@@ -29,6 +39,16 @@ function GithubIcon({ size = 20, className = "" }: { size?: number; className?: 
 }
 
 export const APP_THEMES: ThemeOption[] = [
+  {
+    id: "aurora",
+    name: "Emerald Studio",
+    subtitle: "Dark Glass & Mint",
+    description: "A focused dark listening room with deep green surfaces, soft glass panels, and mint controls.",
+    primaryColor: "#5ce8bc",
+    bgColor: "#061510",
+    cardColor: "#0d211b",
+    isDark: true,
+  },
   {
     id: "analog",
     name: "Warm Analog",
@@ -87,6 +107,16 @@ interface SettingsViewProps {
   onNavigate: (view: View) => void;
   crossfadeSeconds: number;
   onSetCrossfadeSeconds: (seconds: number) => void;
+  autoQueueEnabled: boolean;
+  onToggleAutoQueue: (enabled: boolean) => void;
+  smartQueueMode: SmartQueueModeId;
+  onSelectSmartQueueMode: (mode: SmartQueueModeId) => void;
+  eqState: StudioEqState;
+  onSetEqEnabled: (enabled: boolean) => void;
+  onSetEqBandGain: (bandIndex: number, gainDb: number) => void;
+  onSetBassBoost: (strength: number) => void;
+  onApplyEqPreset: (presetName: string) => void;
+  onSetPlaybackSpeed: (speed: number) => void;
   appUpdates: AppUpdatesState;
 }
 
@@ -96,6 +126,16 @@ export function SettingsView({
   onNavigate,
   crossfadeSeconds,
   onSetCrossfadeSeconds,
+  autoQueueEnabled,
+  onToggleAutoQueue,
+  smartQueueMode,
+  onSelectSmartQueueMode,
+  eqState,
+  onSetEqEnabled,
+  onSetEqBandGain,
+  onSetBassBoost,
+  onApplyEqPreset,
+  onSetPlaybackSpeed,
   appUpdates,
 }: SettingsViewProps) {
   const currentThemeObj = APP_THEMES.find((t) => t.id === currentTheme) || APP_THEMES[0];
@@ -210,6 +250,141 @@ export function SettingsView({
             </button>
           ))}
         </div>
+
+        <div className="update-settings-card smart-queue-settings-card">
+          <div className="update-settings-copy">
+            <strong>
+              <InfinityIcon size={14} style={{ display: "inline", verticalAlign: "-2px", marginRight: 6 }} />
+              Endless Auto-Queue &amp; Smart Radio
+            </strong>
+            <span>Automatically refill your queue with genre &amp; vibe-matched songs whenever fewer than 5 tracks remain.</span>
+          </div>
+          <button
+            type="button"
+            className={`settings-toggle ${autoQueueEnabled ? "active" : ""}`}
+            onClick={() => onToggleAutoQueue(!autoQueueEnabled)}
+            aria-pressed={autoQueueEnabled}
+            aria-label="Enable endless Auto-Queue"
+          >
+            <span />
+          </button>
+        </div>
+
+        <div className="smart-queue-settings-modes" role="group" aria-label="Default Smart Queue Vibe">
+          {SMART_QUEUE_MODES.map((mode) => (
+            <button
+              key={mode.id}
+              type="button"
+              className={`queue-vibe-chip ${smartQueueMode === mode.id ? "active" : ""}`}
+              onClick={() => onSelectSmartQueueMode(mode.id)}
+              title={mode.description}
+            >
+              {mode.label}
+            </button>
+          ))}
+        </div>
+      </section>
+
+      {/* STUDIO 5-BAND EQUALIZER & SPEED CONSOLE (Echoic-inspired) */}
+      <section className="settings-section studio-eq-section" id="studio-eq">
+        <div className="section-header">
+          <div>
+            <h2>
+              <SlidersHorizontal size={18} /> Studio Equalizer &amp; Speed
+            </h2>
+            <p>Sculpt your 5-band frequency response, bass boost, and playback tempo in real time.</p>
+          </div>
+          <button
+            type="button"
+            className={`settings-toggle ${eqState.enabled ? "active" : ""}`}
+            onClick={() => onSetEqEnabled(!eqState.enabled)}
+            aria-pressed={eqState.enabled}
+            aria-label="Enable Studio Equalizer"
+          >
+            <span />
+          </button>
+        </div>
+
+        <div className="eq-presets-row" role="group" aria-label="Equalizer presets">
+          {EQ_PRESETS.map((preset) => (
+            <button
+              key={preset.name}
+              type="button"
+              className={`queue-vibe-chip ${eqState.enabled && eqState.preset === preset.name ? "active" : ""}`}
+              onClick={() => onApplyEqPreset(preset.name)}
+              title={preset.description}
+            >
+              {preset.name}
+            </button>
+          ))}
+        </div>
+
+        <div className={`eq-console-card ${eqState.enabled ? "is-enabled" : "is-bypassed"}`}>
+          <div className="eq-bands-grid">
+            {EQ_BAND_META.map((band, index) => {
+              const gain = eqState.gains[index] ?? 0;
+              return (
+                <div key={band.id} className="eq-band-col">
+                  <span className="eq-band-db">
+                    {gain > 0 ? `+${gain.toFixed(1)}` : gain.toFixed(1)} dB
+                  </span>
+                  <div className="eq-slider-track">
+                    <input
+                      type="range"
+                      min={-12}
+                      max={12}
+                      step={0.5}
+                      value={gain}
+                      onChange={(event) => onSetEqBandGain(index, Number(event.target.value))}
+                      aria-label={`${band.label} equalizer band`}
+                    />
+                  </div>
+                  <strong className="eq-band-label">{band.label}</strong>
+                </div>
+              );
+            })}
+          </div>
+
+          <div className="eq-bottom-controls">
+            <div className="eq-bass-control">
+              <div className="eq-control-label">
+                <strong>Bass Boost</strong>
+                <span>{eqState.bassBoost}%</span>
+              </div>
+              <input
+                type="range"
+                min={0}
+                max={100}
+                step={5}
+                value={eqState.bassBoost}
+                onChange={(event) => onSetBassBoost(Number(event.target.value))}
+                aria-label="Bass boost strength"
+              />
+            </div>
+
+            <div className="eq-speed-control">
+              <div className="eq-control-label">
+                <strong>
+                  <Gauge size={13} style={{ display: "inline", verticalAlign: "-2px", marginRight: 5 }} />
+                  Playback Speed
+                </strong>
+                <span>{eqState.playbackSpeed}x</span>
+              </div>
+              <div className="eq-speed-pills">
+                {PLAYBACK_SPEED_OPTIONS.map((speed) => (
+                  <button
+                    key={speed}
+                    type="button"
+                    className={`queue-vibe-chip ${eqState.playbackSpeed === speed ? "active" : ""}`}
+                    onClick={() => onSetPlaybackSpeed(speed)}
+                  >
+                    {speed}x
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+        </div>
       </section>
 
       <section className="settings-section update-settings-section">
@@ -287,7 +462,7 @@ export function SettingsView({
             <div className="github-meta">
               <div className="repo-title-row">
                 <h3>Esca-Byte / Rewind-Music</h3>
-                <span className="github-version-pill">v1.2.0</span>
+                <span className="github-version-pill">v1.2.3</span>
                 <span className="github-tauri-pill">Tauri v2 Native</span>
               </div>
               <p>
@@ -296,7 +471,7 @@ export function SettingsView({
               <div className="repo-badges-deck">
                <span><ShieldCheck size={13} /> Official Music Tracks</span>
                 <span><Zap size={13} /> Fast Rust Native Backend</span>
-                <span><Palette size={13} /> 5 Curated Themes</span>
+                <span><Palette size={13} /> {APP_THEMES.length} Curated Themes</span>
               </div>
             </div>
           </div>
@@ -364,7 +539,7 @@ export function SettingsView({
             <div className="suggestion-body">
               <strong>Personalize Your Atmosphere</strong>
               <p>
-                Switch between 5 bespoke themes—including Midnight Vinyl, Cyberpunk Neon, and Warm Analog—to tailor the player&apos;s visual atmosphere to your listening mood.
+                Switch between {APP_THEMES.length} bespoke themes—including Emerald Studio, Midnight Vinyl, Cyberpunk Neon, and Warm Analog—to tailor the player&apos;s visual atmosphere to your listening mood.
               </p>
             </div>
           </div>
@@ -402,6 +577,14 @@ export function SettingsView({
                 <div>
                   <kbd>Q</kbd>
                   <span>Open or close the queue</span>
+                </div>
+                <div>
+                  <kbd>L</kbd>
+                  <span>Toggle Synced Lyrics Theater</span>
+                </div>
+                <div>
+                  <kbd>Ctrl+K</kbd>
+                  <span>Open Command Palette</span>
                 </div>
                 <div>
                   <kbd>/</kbd>

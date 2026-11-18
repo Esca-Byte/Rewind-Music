@@ -4,9 +4,10 @@ import React, { type RefObject } from "react";
 import {
   ChevronLeft,
   ChevronRight,
+  Command,
   Copy,
+  CircleUserRound,
   Minus,
-  Rewind,
   Search,
   Shuffle,
   Square,
@@ -20,15 +21,16 @@ interface TopbarProps {
   query: string;
   setQuery: (q: string) => void;
   activePlaylist: ActivePlaylistDisplay;
-  historyIndex: number;
-  viewHistoryLength: number;
   isMaximized: boolean;
   isElectron: boolean;
   totalTracksCount: number;
+  canGoBack: boolean;
+  canGoForward: boolean;
   searchInputRef: RefObject<HTMLInputElement | null>;
   onNavigate: (view: View) => void;
   onGoBack: () => void;
   onGoForward: () => void;
+  onOpenCommandPalette: () => void;
   onRunSearch: (query: string, autoplay?: boolean) => void;
   onShuffleAll: () => void;
   onMinimize: (e?: React.MouseEvent) => void;
@@ -45,6 +47,7 @@ const navLabels: Record<View, string> = {
   stats: "Listening Stats",
   search: "Search",
   settings: "Settings",
+  artist: "Artist Hub",
 };
 
 export function Topbar({
@@ -52,15 +55,16 @@ export function Topbar({
   query,
   setQuery,
   activePlaylist,
-  historyIndex,
-  viewHistoryLength,
   isMaximized,
   isElectron,
   totalTracksCount,
+  canGoBack,
+  canGoForward,
   searchInputRef,
   onNavigate,
   onGoBack,
   onGoForward,
+  onOpenCommandPalette,
   onRunSearch,
   onShuffleAll,
   onMinimize,
@@ -79,68 +83,39 @@ export function Topbar({
       />
 
       <div className="topbar-left">
-        <button
-          type="button"
-          className="topbar-brand-btn"
-          onClick={() => onNavigate("explore")}
-          aria-label="Rewind home"
-          title="Rewind Music Player"
-        >
-          <span className="topbar-brand-icon">
-            <img
-              src="/rewindlogo.png"
-              alt="Rewind Logo"
-              className="topbar-brand-img"
-              onError={(e) => {
-                e.currentTarget.style.display = "none";
-                const fallback = e.currentTarget.parentElement?.querySelector(
-                  ".topbar-brand-fallback"
-                ) as HTMLElement;
-                if (fallback) fallback.style.display = "flex";
-              }}
-            />
-            <span className="topbar-brand-fallback" style={{ display: "none" }}>
-              <Rewind size={15} fill="currentColor" />
-            </span>
-          </span>
-          <strong>
-            rewind<span>.</span>
-          </strong>
-        </button>
-
-        <div className="nav-history-controls">
+        <div className="topbar-nav-arrows" role="group" aria-label="Navigation history">
           <button
             type="button"
-            className="nav-arrow-btn"
+            className="topbar-icon-button"
             onClick={onGoBack}
-            disabled={historyIndex === 0}
-            title="Go back"
-            aria-label="Back"
+            disabled={!canGoBack}
+            aria-label="Go back"
+            title="Back"
           >
             <ChevronLeft size={16} />
           </button>
           <button
             type="button"
-            className="nav-arrow-btn"
+            className="topbar-icon-button"
             onClick={onGoForward}
-            disabled={historyIndex >= viewHistoryLength - 1}
-            title="Go forward"
-            aria-label="Forward"
+            disabled={!canGoForward}
+            aria-label="Go forward"
+            title="Forward"
           >
             <ChevronRight size={16} />
           </button>
         </div>
-
         <div className="page-breadcrumb">
           <span>{navLabels[view] || "Explore"}</span>
-          <ChevronRight size={12} />
           <strong>
             {view === "explore"
               ? "Trending Music"
               : view === "playlists"
               ? activePlaylist.title
               : view === "settings"
-              ? "Preferences & Themes"
+              ? "Preferences & EQ"
+              : view === "artist"
+              ? "Artist Spotlight"
               : "Your Music"}
           </strong>
         </div>
@@ -177,7 +152,7 @@ export function Topbar({
               }
             }}
           />
-          {query && (
+          {query ? (
             <button
               className="clear-search"
               type="button"
@@ -188,6 +163,15 @@ export function Topbar({
               aria-label="Clear search"
             >
               <X size={14} />
+            </button>
+          ) : (
+            <button
+              type="button"
+              className="search-cmd-hint"
+              onClick={onOpenCommandPalette}
+              title="Open Command Palette (Ctrl+K)"
+            >
+              <Command size={11} />K
             </button>
           )}
         </form>
@@ -201,6 +185,15 @@ export function Topbar({
       />
 
       <div className="topbar-right">
+        <button
+          type="button"
+          className="topbar-profile-button"
+          onClick={() => onNavigate("settings")}
+          aria-label="Open profile settings"
+        >
+          <span><CircleUserRound size={17} /></span>
+          <strong>Rewind listener</strong>
+        </button>
         <button
           type="button"
           className="today-button"

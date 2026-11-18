@@ -5,6 +5,8 @@ import type { SpotifyPlaylistResult, SpotifyTrackItem, MatchedYouTubeTrack } fro
 const streamUrlCache = new Map<string, { url: string; expires: number }>();
 const streamPrefetches = new Set<string>();
 const streamResolutions = new Map<string, Promise<string>>();
+const MAX_CONCURRENT_PREFETCHES = 2;
+let activePrefetches = 0;
 const STREAM_CACHE_STORAGE_KEY = "rewind_audio_stream_cache_v1";
 const STREAM_CACHE_TTL = 40 * 60 * 1000;
 
@@ -87,6 +89,16 @@ export async function hideMiniPlayerWindow(): Promise<void> {
   }
 }
 
+/** Restores and focuses the main Rewind window and hides the mini-player. */
+export async function restoreMainWindow(): Promise<void> {
+  if (!isTauriEnvironment()) return;
+  try {
+    await invoke("app_restore_main_window");
+  } catch (e) {
+    console.warn("Failed to restore main window:", e);
+  }
+}
+
 export function invalidateStreamCache(videoId: string): void {
   streamUrlCache.delete(videoId);
   removePersistedStream(videoId);
@@ -144,13 +156,19 @@ export async function resolveAudioStreamUrl(videoId: string, bypassCache = false
   }
 }
 
-/** Starts stream extraction in the background so a subsequent click can play immediately. */
+/** Starts stream extraction in the background with a strict concurrency cap so hover gliding never floods yt-dlp. */
 export function prefetchAudioStreamUrl(videoId: string): void {
-  if (!videoId || streamPrefetches.has(videoId)) return;
+  if (!videoId || !isTauriEnvironment()) return;
+  if (streamPrefetches.has(videoId) || streamUrlCache.has(videoId)) return;
+  if (activePrefetches >= MAX_CONCURRENT_PREFETCHES) return;
   streamPrefetches.add(videoId);
+  activePrefetches += 1;
   void resolveAudioStreamUrl(videoId)
     .catch(() => undefined)
-    .finally(() => streamPrefetches.delete(videoId));
+    .finally(() => {
+      streamPrefetches.delete(videoId);
+      activePrefetches = Math.max(0, activePrefetches - 1);
+    });
 }
 
 /**
@@ -164,6 +182,44 @@ export async function searchTracks(query: string): Promise<TimeTrack[]> {
     return results || [];
   } catch (err) {
     console.error("Native search error:", err);
+    return [];
+  }
+}
+
+/**
+ * Fetches collaborative Song-to-Song Up Next radio recommendations via YouTube Music InnerTube Automix (RDAMVM).
+ */
+export async function fetchYouTubeAutomix(videoId: string): Promise<TimeTrack[]> {
+  if (!isTauriEnvironment() || !videoId) return [];
+
+  try {
+    const results = await invoke<TimeTrack[]>("fetch_youtube_automix", { videoId });
+    return results || [];
+  } catch (err) {
+    console.warn("YouTube Automix radio error:", err);
+    return [];
+  }
+}
+
+/**
+ * Fetches clean music tracks for a Genre / Mood / Artist Smart Radio query via YouTube Music InnerTube Search.
+ */
+export async function fetchGenreRadioTracks(
+  query: string,
+  genreLabel?: string,
+  limit = 16
+): Promise<TimeTrack[]> {
+  if (!isTauriEnvironment() || !query.trim()) return [];
+
+  try {
+    const results = await invoke<TimeTrack[]>("fetch_genre_radio_tracks", {
+      query,
+      genreLabel: genreLabel || null,
+      limit,
+    });
+    return results || [];
+  } catch (err) {
+    console.warn("Genre radio fetch error:", err);
     return [];
   }
 }

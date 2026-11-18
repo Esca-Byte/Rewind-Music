@@ -5,13 +5,21 @@ import { useCallback, useEffect, useRef, useState } from "react";
 export const SLEEP_TIMER_MINUTES = [5, 10, 15, 30, 45, 60, 90] as const;
 export type SleepTimerMinutes = (typeof SLEEP_TIMER_MINUTES)[number];
 const SLEEP_TIMER_STORAGE_KEY = "rewind-sleep-timer";
+const FADE_OUT_WINDOW_SECONDS = 10;
 
-/** A wall-clock timer: playback is stopped by the caller's onExpire callback. */
+/**
+ * Echoic-inspired wall-clock sleep timer:
+ * - Supports timed countdown with a smooth 10-second fade-out multiplier.
+ * - Supports "Stop after current track" mode.
+ */
 export function useSleepTimer(onExpire: () => void) {
   const [minutes, setMinutes] = useState<SleepTimerMinutes | null>(null);
   const [endsAt, setEndsAt] = useState<number | null>(null);
   const [remainingSeconds, setRemainingSeconds] = useState(0);
+  const [stopAfterCurrentTrack, setStopAfterCurrentTrack] = useState(false);
+
   const deadline = useRef<number | null>(null);
+  const stopAfterRef = useRef(false);
   const timeout = useRef<ReturnType<typeof setTimeout> | null>(null);
   const interval = useRef<ReturnType<typeof setInterval> | null>(null);
   const onExpireRef = useRef(onExpire);
@@ -29,10 +37,12 @@ export function useSleepTimer(onExpire: () => void) {
 
   const cancel = useCallback(() => {
     deadline.current = null;
+    stopAfterRef.current = false;
     clearScheduled();
     setMinutes(null);
     setEndsAt(null);
     setRemainingSeconds(0);
+    setStopAfterCurrentTrack(false);
     try {
       localStorage.removeItem(SLEEP_TIMER_STORAGE_KEY);
     } catch {
@@ -48,8 +58,6 @@ export function useSleepTimer(onExpire: () => void) {
       setRemainingSeconds(remaining);
       return;
     }
-    // Clear the deadline before invoking user code so overlapping scheduled ticks
-    // and callbacks which start a replacement timer cannot fire the old timer twice.
     deadline.current = null;
     clearScheduled();
     setMinutes(null);
@@ -65,6 +73,8 @@ export function useSleepTimer(onExpire: () => void) {
 
   const schedule = useCallback((target: number, duration: SleepTimerMinutes) => {
     clearScheduled();
+    stopAfterRef.current = false;
+    setStopAfterCurrentTrack(false);
     deadline.current = target;
     setMinutes(duration);
     setEndsAt(target);
@@ -86,6 +96,30 @@ export function useSleepTimer(onExpire: () => void) {
     }
   }, [schedule]);
 
+  const startStopAfterCurrent = useCallback(() => {
+    clearScheduled();
+    deadline.current = null;
+    stopAfterRef.current = true;
+    setMinutes(null);
+    setEndsAt(null);
+    setRemainingSeconds(0);
+    setStopAfterCurrentTrack(true);
+    try {
+      localStorage.removeItem(SLEEP_TIMER_STORAGE_KEY);
+    } catch {
+      /* optional */
+    }
+  }, [clearScheduled]);
+
+  /** Call when a track ends; returns true if playback should stop instead of advancing. */
+  const consumeStopAfterCurrent = useCallback((): boolean => {
+    if (!stopAfterRef.current) return false;
+    stopAfterRef.current = false;
+    setStopAfterCurrentTrack(false);
+    onExpireRef.current();
+    return true;
+  }, []);
+
   useEffect(() => {
     let restoreTimer: ReturnType<typeof setTimeout> | null = null;
     try {
@@ -98,7 +132,7 @@ export function useSleepTimer(onExpire: () => void) {
         localStorage.removeItem(SLEEP_TIMER_STORAGE_KEY);
       }
     } catch {
-      /* A stale or unavailable timer should not interrupt startup. */
+      /* ignore */
     }
     return () => {
       if (restoreTimer !== null) clearTimeout(restoreTimer);
@@ -124,5 +158,23 @@ export function useSleepTimer(onExpire: () => void) {
     clearScheduled();
   }, [clearScheduled]);
 
-  return { durations: SLEEP_TIMER_MINUTES, minutes, endsAt, remainingSeconds, isActive: endsAt !== null, start, cancel };
+  const isFadingOut = endsAt !== null && remainingSeconds > 0 && remainingSeconds <= FADE_OUT_WINDOW_SECONDS;
+  const fadeMultiplier = isFadingOut
+    ? Math.max(0.05, remainingSeconds / FADE_OUT_WINDOW_SECONDS)
+    : 1;
+
+  return {
+    durations: SLEEP_TIMER_MINUTES,
+    minutes,
+    endsAt,
+    remainingSeconds,
+    stopAfterCurrentTrack,
+    isFadingOut,
+    fadeMultiplier,
+    isActive: endsAt !== null || stopAfterCurrentTrack,
+    start,
+    startStopAfterCurrent,
+    consumeStopAfterCurrent,
+    cancel,
+  };
 }

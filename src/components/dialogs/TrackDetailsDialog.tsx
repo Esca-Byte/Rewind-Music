@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { ArrowDownToLine, Heart, LoaderCircle, Play, ScrollText } from "lucide-react";
 import { Dialog } from "@/components/common/Dialog";
 import { AlbumObject } from "@/components/time/album-object";
@@ -11,6 +11,7 @@ interface TrackDetailsDialogProps {
   isSaved: boolean;
   onClose: () => void;
   onPlay: (track: TimeTrack) => void;
+  onSeek?: (seconds: number) => void;
   onToggleFavorite: (track: TimeTrack) => void;
   onDownload: (track: TimeTrack) => void;
   currentPosition: number;
@@ -31,6 +32,7 @@ export function TrackDetailsDialog({
   isSaved,
   onClose,
   onPlay,
+  onSeek,
   onToggleFavorite,
   onDownload,
   currentPosition,
@@ -42,6 +44,7 @@ export function TrackDetailsDialog({
     plain: string;
     error: string;
   }>({ trackId: "", loading: false, synced: [], plain: "", error: "" });
+  const activeLineRef = useRef<HTMLButtonElement | null>(null);
 
   useEffect(() => {
     if (!track) return;
@@ -66,14 +69,19 @@ export function TrackDetailsDialog({
     return () => controller.abort();
   }, [track]);
 
-  if (!track) return null;
-
-  const lyricsLoading = lyricsState.trackId !== track.id;
-  const lyrics = lyricsState.trackId === track.id ? lyricsState : null;
+  const lyricsLoading = Boolean(track) && lyricsState.trackId !== track!.id;
+  const lyrics = track && lyricsState.trackId === track.id ? lyricsState : null;
   const activeLyricIndex = lyrics?.synced.reduce(
     (active, line, index) => (line.time <= currentPosition ? index : active),
     -1
   ) ?? -1;
+
+  useEffect(() => {
+    if (activeLyricIndex < 0) return;
+    activeLineRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
+  }, [activeLyricIndex]);
+
+  if (!track) return null;
 
   return (
     <Dialog title={`${track.album} details`} onClose={onClose}>
@@ -123,7 +131,18 @@ export function TrackDetailsDialog({
           <div className="lyrics-state">Lyrics are not available for this track.</div>
         ) : lyrics?.synced.length ? (
           <div className="lyrics-lines">
-            {lyrics.synced.map((line, index) => <p key={`${line.time}-${index}`} className={index === activeLyricIndex ? "active" : ""}>{line.text}</p>)}
+            {lyrics.synced.map((line, index) => (
+              <button
+                key={`${line.time}-${index}`}
+                ref={index === activeLyricIndex ? activeLineRef : null}
+                type="button"
+                className={`lyrics-line-btn ${index === activeLyricIndex ? "active" : ""}`}
+                onClick={() => onSeek?.(line.time)}
+                title={`Jump to ${clock(line.time)}`}
+              >
+                {line.text}
+              </button>
+            ))}
           </div>
         ) : (
           <pre className="lyrics-plain">{lyrics?.plain}</pre>

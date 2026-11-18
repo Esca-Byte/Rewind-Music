@@ -151,49 +151,70 @@ export function DownloadsView({
             </button>
           </div>
           <div className="download-list">
-            {downloadedSongs.map((song) => {
-              const track: TimeTrack = {
-                id: song.id,
-                videoId: song.videoId,
-                title: song.title,
-                artist: song.artist,
-                album: song.album || "Rewind Downloads",
-                year: song.year ?? null,
-                genre: song.genre || "Offline Music",
-                duration: song.duration || 180,
-                cover:
-                  song.cover ||
-                  (song.videoId && !song.videoId.startsWith("local-")
-                    ? `https://i.ytimg.com/vi/${song.videoId}/hqdefault.jpg`
-                    : "/time/palm-sunset.jpg"),
-                source: song.filePath ? "local" : "youtube",
-                filePath: song.filePath,
-              };
-              const isCurrent =
-                currentTrackId === track.id ||
-                (currentTrackVideoId && currentTrackVideoId === track.videoId);
-              const fileExt =
-                song.fileName?.split(".").pop()?.toUpperCase() ||
-                song.filePath?.split(".").pop()?.toUpperCase();
-              const fileSizeMb = song.fileSize
-                ? `${(song.fileSize / (1024 * 1024)).toFixed(1)} MB`
-                : null;
-              const downloadStatus = song.downloadStatus || "downloaded";
-              const isReady = downloadStatus === "downloaded";
+            {(() => {
+              const allDownloadTracks: TimeTrack[] = downloadedSongs
+                .filter((s) => (s.downloadStatus || "downloaded") === "downloaded")
+                .map((s) => ({
+                  id: s.id,
+                  videoId: s.videoId,
+                  title: s.title,
+                  artist: s.artist,
+                  album: s.album || "Rewind Downloads",
+                  year: s.year ?? null,
+                  genre: s.genre || "Offline Music",
+                  duration: s.duration || 180,
+                  cover:
+                    s.cover ||
+                    (s.videoId && !s.videoId.startsWith("local-")
+                      ? `https://i.ytimg.com/vi/${s.videoId}/hqdefault.jpg`
+                      : "/time/palm-sunset.jpg"),
+                  source: s.filePath ? "local" : "youtube",
+                  filePath: s.filePath,
+                }));
 
-              return (
-                <div key={song.id} className="download-item">
-                  <button
-                    type="button"
-                    className="download-play-btn"
-                    onClick={() => {
-                      if (!isReady) return;
-                      if (isCurrent) {
-                        onTogglePlay();
-                      } else {
-                        onChooseTrack(track, [track]);
-                      }
-                    }}
+              return downloadedSongs.map((song) => {
+                const track: TimeTrack = {
+                  id: song.id,
+                  videoId: song.videoId,
+                  title: song.title,
+                  artist: song.artist,
+                  album: song.album || "Rewind Downloads",
+                  year: song.year ?? null,
+                  genre: song.genre || "Offline Music",
+                  duration: song.duration || 180,
+                  cover:
+                    song.cover ||
+                    (song.videoId && !song.videoId.startsWith("local-")
+                      ? `https://i.ytimg.com/vi/${song.videoId}/hqdefault.jpg`
+                      : "/time/palm-sunset.jpg"),
+                  source: song.filePath ? "local" : "youtube",
+                  filePath: song.filePath,
+                };
+                const isCurrent =
+                  currentTrackId === track.id ||
+                  (currentTrackVideoId && currentTrackVideoId === track.videoId);
+                const fileExt =
+                  song.fileName?.split(".").pop()?.toUpperCase() ||
+                  song.filePath?.split(".").pop()?.toUpperCase();
+                const fileSizeMb = song.fileSize
+                  ? `${(song.fileSize / (1024 * 1024)).toFixed(1)} MB`
+                  : null;
+                const downloadStatus = song.downloadStatus || "downloaded";
+                const isReady = downloadStatus === "downloaded";
+
+                return (
+                  <div key={song.id} className="download-item">
+                    <button
+                      type="button"
+                      className="download-play-btn"
+                      onClick={() => {
+                        if (!isReady) return;
+                        if (isCurrent) {
+                          onTogglePlay();
+                        } else {
+                          onChooseTrack(track, allDownloadTracks.length ? allDownloadTracks : [track]);
+                        }
+                      }}
                     disabled={!isReady}
                     aria-label={`Play ${song.title}`}
                     title={isReady ? `Play ${song.title}` : "Download is not ready yet"}
@@ -244,7 +265,8 @@ export function DownloadsView({
                   </div>
                 </div>
               );
-            })}
+              });
+            })()}
           </div>
         </div>
       ) : (

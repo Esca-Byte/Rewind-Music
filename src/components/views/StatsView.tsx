@@ -29,12 +29,25 @@ export function StatsView({ stats, tracks }: StatsViewProps) {
     }, new Map<string, TimeTrack[]>()).values()
   ).filter((group) => group.length > 1);
   const days = Object.keys(stats.days).sort().reverse();
-  const streak = days.reduce((count, day, index) => {
-    if (index === 0) return 1;
-    const previous = new Date(`${days[index - 1]}T12:00:00`).getTime();
-    const current = new Date(`${day}T12:00:00`).getTime();
-    return previous - current === 86400000 ? count + 1 : count;
-  }, 0);
+  const streak = (() => {
+    if (!days.length) return 0;
+    const today = new Date();
+    const todayMid = new Date(today.getFullYear(), today.getMonth(), today.getDate(), 12, 0, 0).getTime();
+    const latestMid = new Date(`${days[0]}T12:00:00`).getTime();
+    // Streak only counts if you listened today or yesterday
+    if (!Number.isFinite(latestMid) || todayMid - latestMid > 86_400_000) return 0;
+    let count = 1;
+    for (let i = 1; i < days.length; i += 1) {
+      const prevMid = new Date(`${days[i - 1]}T12:00:00`).getTime();
+      const currMid = new Date(`${days[i]}T12:00:00`).getTime();
+      if (Math.round((prevMid - currMid) / 86_400_000) === 1) {
+        count += 1;
+      } else {
+        break;
+      }
+    }
+    return count;
+  })();
   const hours = Math.floor(stats.totalSeconds / 3600);
   const minutes = Math.floor(stats.totalSeconds / 60) % 60;
 

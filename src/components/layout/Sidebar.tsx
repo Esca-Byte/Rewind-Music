@@ -4,12 +4,12 @@ import React from "react";
 import {
   ArrowDownToLine,
   BarChart3,
-  ChevronRight,
   Compass,
   Heart,
   History,
   ListMusic,
   Plus,
+  Rewind,
   Settings,
 } from "lucide-react";
 import type { View, UserPlaylist } from "@/types/music";
@@ -24,7 +24,6 @@ interface SidebarProps {
   onNavigate: (view: View) => void;
   onOpenPlaylist: (id: string) => void;
   onOpenNewPlaylistModal: () => void;
-  onOpenInfoModal: () => void;
 }
 
 const navItems = [
@@ -34,6 +33,7 @@ const navItems = [
   { id: "memories", label: "History", icon: History },
   { id: "downloads", label: "Downloads", icon: ArrowDownToLine },
   { id: "stats", label: "Stats", icon: BarChart3 },
+  { id: "settings", label: "Settings", icon: Settings },
 ] as const;
 
 export function Sidebar({
@@ -45,10 +45,13 @@ export function Sidebar({
   onNavigate,
   onOpenPlaylist,
   onOpenNewPlaylistModal,
-  onOpenInfoModal,
 }: SidebarProps) {
   return (
     <aside className="rewind-sidebar">
+      <button className="sidebar-brand" type="button" onClick={() => onNavigate("explore")} aria-label="Rewind home">
+        <span className="sidebar-brand-mark"><Rewind size={20} fill="currentColor" strokeWidth={2.5} /></span>
+        <strong>rewind<span>.</span></strong>
+      </button>
       <div className="sidebar-section">
         <span className="sidebar-label">MENU</span>
         <nav aria-label="Main navigation">
@@ -116,32 +119,6 @@ export function Sidebar({
         </div>
       </div>
 
-      <div className="sidebar-bottom">
-        <div className="sidebar-record">
-          <span />
-          <i />
-        </div>
-        <p>
-          Full tracks.
-          <br />
-          <em>Never previews.</em>
-        </p>
-        <span className="sidebar-footnote">OFFICIAL YOUTUBE STREAMS</span>
-        <button
-          className={`listening-profile sidebar-settings-btn ${view === "settings" ? "active" : ""}`}
-          onClick={() => onNavigate("settings")}
-          aria-label="Open Settings"
-        >
-          <span className="profile-avatar settings-avatar">
-            <Settings size={15} />
-          </span>
-          <span>
-            <strong>Settings</strong>
-            <small>Themes & preferences</small>
-          </span>
-          <ChevronRight size={14} />
-        </button>
-      </div>
     </aside>
   );
 }

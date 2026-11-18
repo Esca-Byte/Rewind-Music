@@ -1,11 +1,15 @@
 "use client";
 
-import React, { useRef, type CSSProperties } from "react";
+import React, { useMemo, useRef, useState, type CSSProperties } from "react";
 import {
+  ArrowDownToLine,
   ArrowRight,
   ArrowUpRight,
+  Check,
   Download,
   FileUp,
+  LoaderCircle,
+  Pencil,
   RefreshCw,
   ListMusic,
   Play,
@@ -13,6 +17,7 @@ import {
   Shuffle,
   Sparkles,
   Trash2,
+  X,
 } from "lucide-react";
 import { TrackRow } from "@/components/track/TrackRow";
 import { YoutubeIcon } from "@/components/common/YoutubeIcon";
@@ -20,6 +25,16 @@ import { SpotifyIcon } from "@/components/common/SpotifyIcon";
 import type { Playlist } from "@/lib/time/playlists";
 import type { TimeTrack } from "@/lib/time/types";
 import type { UserPlaylist, ActivePlaylistDisplay, View } from "@/types/music";
+
+type TrackSortOrder = "default" | "title" | "artist" | "duration";
+
+export interface BatchDownloadProgress {
+  playlistId: string;
+  title: string;
+  completed: number;
+  total: number;
+  active: boolean;
+}
 
 interface PlaylistViewProps {
   activePlaylist: ActivePlaylistDisplay;
@@ -29,17 +44,24 @@ interface PlaylistViewProps {
   currentTrackVideoId?: string;
   isPlaying: boolean;
   isSaved: (track: TimeTrack) => boolean;
+  batchDownload: BatchDownloadProgress | null;
   onSelectPlaylist: (id: string) => void;
   onOpenNewPlaylistModal: () => void;
   onPlayPlaylist: (pl: { title: string; tracks: TimeTrack[] }, shuffle?: boolean) => void;
   onDeletePlaylist: (id: string) => void;
+  onRenamePlaylist: (id: string, nextTitle: string) => void;
+  onBatchDownloadPlaylist: (playlist: ActivePlaylistDisplay) => void;
+  onCancelBatchDownload: () => void;
   onNavigate: (view: View) => void;
   onChooseTrack: (track: TimeTrack, list: TimeTrack[]) => void;
   onPlayNext: (track: TimeTrack) => void;
   onAddToQueue: (track: TimeTrack) => void;
+  onStartRadio: (track: TimeTrack) => void;
   onOpenAddToPlaylist: (track: TimeTrack) => void;
   onToggleFavorite: (track: TimeTrack) => void;
   onDownload: (track: TimeTrack) => void;
+  onOpenDetails: (track: TimeTrack) => void;
+  onOpenArtist: (artist: string) => void;
   onRemoveTrackFromPlaylist: (playlistId: string, trackIndex: number) => void;
   onExportPlaylists: () => void;
   onImportPlaylists: (file: File) => void;
@@ -55,17 +77,24 @@ export function PlaylistView({
   currentTrackVideoId,
   isPlaying,
   isSaved,
+  batchDownload,
   onSelectPlaylist,
   onOpenNewPlaylistModal,
   onPlayPlaylist,
   onDeletePlaylist,
+  onRenamePlaylist,
+  onBatchDownloadPlaylist,
+  onCancelBatchDownload,
   onNavigate,
   onChooseTrack,
   onPlayNext,
   onAddToQueue,
+  onStartRadio,
   onOpenAddToPlaylist,
   onToggleFavorite,
   onDownload,
+  onOpenDetails,
+  onOpenArtist,
   onRemoveTrackFromPlaylist,
   onExportPlaylists,
   onImportPlaylists,
@@ -73,6 +102,25 @@ export function PlaylistView({
   refreshingPlaylistId,
 }: PlaylistViewProps) {
   const importInputRef = useRef<HTMLInputElement>(null);
+  const [sortOrder, setSortOrder] = useState<TrackSortOrder>("default");
+  const [renamingId, setRenamingId] = useState<string | null>(null);
+  const [renameDraft, setRenameDraft] = useState("");
+  const isRenaming = renamingId === activePlaylist.id;
+
+  const sortedTracks = useMemo(() => {
+    const items = activePlaylist.tracks.map((track, originalIndex) => ({ track, originalIndex }));
+    if (sortOrder === "title") {
+      items.sort((a, b) => a.track.title.localeCompare(b.track.title));
+    } else if (sortOrder === "artist") {
+      items.sort((a, b) => a.track.artist.localeCompare(b.track.artist));
+    } else if (sortOrder === "duration") {
+      items.sort((a, b) => (a.track.duration || 0) - (b.track.duration || 0));
+    }
+    return items;
+  }, [activePlaylist.tracks, sortOrder]);
+
+  const orderedList = useMemo(() => sortedTracks.map((item) => item.track), [sortedTracks]);
+  const isBatchDownloadingThis = Boolean(batchDownload?.active && batchDownload.playlistId === activePlaylist.id);
   return (
     <>
       <div className="page-intro">
@@ -212,7 +260,33 @@ export function PlaylistView({
           <span className="playlist-caption-pill">
             <Sparkles size={13} /> {activePlaylist.title}
           </span>
-          <h2>{activePlaylist.title}</h2>
+          {isRenaming ? (
+            <form
+              className="playlist-rename-form"
+              onSubmit={(event) => {
+                event.preventDefault();
+                if (renameDraft.trim()) onRenamePlaylist(activePlaylist.id, renameDraft.trim());
+                setRenamingId(null);
+              }}
+            >
+              <input
+                type="text"
+                value={renameDraft}
+                onChange={(event) => setRenameDraft(event.target.value)}
+                maxLength={60}
+                autoFocus
+                aria-label="Rename playlist"
+              />
+              <button type="submit" className="primary-button">
+                <Check size={14} /> Save
+              </button>
+              <button type="button" className="quiet-button" onClick={() => setRenamingId(null)}>
+                <X size={14} />
+              </button>
+            </form>
+          ) : (
+            <h2>{activePlaylist.title}</h2>
+          )}
           <p>{activePlaylist.tagline}</p>
           <div className="playlist-specs">
             <span>
@@ -261,15 +335,47 @@ export function PlaylistView({
                 >
                   <Shuffle size={16} /> Shuffle
                 </button>
+                {isBatchDownloadingThis ? (
+                  <button
+                    type="button"
+                    className="quiet-button"
+                    onClick={onCancelBatchDownload}
+                  >
+                    <LoaderCircle size={14} className="spinner" />
+                    Downloading {batchDownload?.completed}/{batchDownload?.total} · Cancel
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    className="quiet-button"
+                    onClick={() => onBatchDownloadPlaylist(activePlaylist)}
+                    disabled={Boolean(batchDownload?.active)}
+                    title="Download all songs in this playlist for offline playback"
+                  >
+                    <ArrowDownToLine size={15} /> Download All
+                  </button>
+                )}
               </>
             )}
             {activePlaylist.isCustom && (
-              <button
-                className="quiet-button delete-custom-pl-btn"
-                onClick={() => onDeletePlaylist(activePlaylist.id)}
-              >
-                <Trash2 size={15} /> Delete Playlist
-              </button>
+              <>
+                <button
+                  type="button"
+                  className="quiet-button"
+                  onClick={() => {
+                    setRenameDraft(activePlaylist.title);
+                    setRenamingId(activePlaylist.id);
+                  }}
+                >
+                  <Pencil size={14} /> Rename
+                </button>
+                <button
+                  className="quiet-button delete-custom-pl-btn"
+                  onClick={() => onDeletePlaylist(activePlaylist.id)}
+                >
+                  <Trash2 size={15} /> Delete Playlist
+                </button>
+              </>
             )}
             {activePlaylist.spotifyId && (
               <button
@@ -293,19 +399,40 @@ export function PlaylistView({
             </h2>
             <p>
               {activePlaylist.tracks.length
-                ? "Click any song to play immediately."
+                ? "Click any song to play immediately, or right-click for quick actions."
                 : "This playlist is currently empty."}
             </p>
           </div>
+          {activePlaylist.tracks.length > 1 && (
+            <div className="playlist-sort-chips" role="group" aria-label="Sort tracklist">
+              {(
+                [
+                  { id: "default", label: "Default" },
+                  { id: "title", label: "Title A–Z" },
+                  { id: "artist", label: "Artist" },
+                  { id: "duration", label: "Duration" },
+                ] as const
+              ).map((opt) => (
+                <button
+                  key={opt.id}
+                  type="button"
+                  className={`queue-vibe-chip ${sortOrder === opt.id ? "active" : ""}`}
+                  onClick={() => setSortOrder(opt.id)}
+                >
+                  {opt.label}
+                </button>
+              ))}
+            </div>
+          )}
         </div>
         {activePlaylist.tracks.length > 0 ? (
           <div className="recording-list playlist-recording-list">
-            {activePlaylist.tracks.map((track, index) => (
+            {sortedTracks.map(({ track, originalIndex }, displayIndex) => (
               <TrackRow
-                key={`${track.id}-${activePlaylist.id}-${index}`}
+                key={`${track.id}-${activePlaylist.id}-${originalIndex}`}
                 track={track}
-                index={index}
-                list={activePlaylist.tracks}
+                index={displayIndex}
+                list={orderedList}
                 suffix={activePlaylist.id}
                 isCustomPlaylist={activePlaylist.isCustom}
                 activePlaylistId={activePlaylist.id}
@@ -315,10 +442,13 @@ export function PlaylistView({
                 onChoose={onChooseTrack}
                 onPlayNext={onPlayNext}
                 onAddToQueue={onAddToQueue}
+                onStartRadio={onStartRadio}
                 onOpenAddToPlaylist={onOpenAddToPlaylist}
                 onToggleFavorite={onToggleFavorite}
                 onDownload={onDownload}
-                onRemoveFromPlaylist={onRemoveTrackFromPlaylist}
+                onOpenDetails={onOpenDetails}
+                onOpenArtist={onOpenArtist}
+                onRemoveFromPlaylist={(plId) => onRemoveTrackFromPlaylist(plId, originalIndex)}
               />
             ))}
           </div>

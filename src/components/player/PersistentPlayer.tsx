@@ -10,15 +10,19 @@ import {
   Moon,
   Pause,
   Play,
-  Repeat2,
+  Radio,
+  Repeat,
+  Repeat1,
+  ScrollText,
   Shuffle,
   SkipBack,
   SkipForward,
-  Sparkles,
+  SlidersHorizontal,
   Volume2,
   VolumeX,
 } from "lucide-react";
 import { clock, type TimeTrack } from "@/lib/time/types";
+import type { RepeatMode } from "@/lib/time/smart-queue";
 import { Artwork } from "@/components/time/album-object";
 import type { SleepTimerMinutes } from "@/components/time/use-sleep-timer";
 
@@ -31,9 +35,15 @@ interface PersistentPlayerProps {
   volume: number;
   muted: boolean;
   shuffle: boolean;
-  repeat: boolean;
+  repeatMode: RepeatMode;
+  autoQueueEnabled: boolean;
+  queueCount: number;
+  isRefillingAutoQueue: boolean;
+  eqEnabled: boolean;
+  playbackSpeed: number;
   isSaved: boolean;
   queueOpen: boolean;
+  lyricsOpen: boolean;
   onTogglePlay: () => void;
   onPrevious: () => void;
   onNext: () => void;
@@ -41,17 +51,22 @@ interface PersistentPlayerProps {
   onSetVolume: (vol: number) => void;
   onSetMuted: (muted: boolean) => void;
   onSetShuffle: (shuffle: boolean) => void;
-  onSetRepeat: (repeat: boolean) => void;
+  onCycleRepeat: () => void;
   onToggleFavorite: (track: TimeTrack) => void;
   onDownload: (track: TimeTrack) => void;
   onOpenDetails: (track: TimeTrack) => void;
+  onOpenArtist: (artist: string) => void;
+  onOpenEq: () => void;
+  onToggleLyrics: () => void;
   onToggleQueue: () => void;
-  similarTrackCount: number;
-  onPlaySimilar: () => void;
+  onStartRadio: () => void;
   sleepTimerActive: boolean;
+  sleepTimerStopAfterCurrent: boolean;
+  sleepTimerIsFading: boolean;
   sleepTimerRemainingSeconds: number;
   sleepTimerDurations: readonly SleepTimerMinutes[];
   onStartSleepTimer: (minutes: SleepTimerMinutes) => void;
+  onStartSleepStopAfterCurrent: () => void;
   onCancelSleepTimer: () => void;
 }
 
@@ -64,9 +79,15 @@ export function PersistentPlayer({
   volume,
   muted,
   shuffle,
-  repeat,
+  repeatMode,
+  autoQueueEnabled,
+  queueCount,
+  isRefillingAutoQueue,
+  eqEnabled,
+  playbackSpeed,
   isSaved,
   queueOpen,
+  lyricsOpen,
   onTogglePlay,
   onPrevious,
   onNext,
@@ -74,17 +95,22 @@ export function PersistentPlayer({
   onSetVolume,
   onSetMuted,
   onSetShuffle,
-  onSetRepeat,
+  onCycleRepeat,
   onToggleFavorite,
   onDownload,
   onOpenDetails,
+  onOpenArtist,
+  onOpenEq,
+  onToggleLyrics,
   onToggleQueue,
-  similarTrackCount,
-  onPlaySimilar,
+  onStartRadio,
   sleepTimerActive,
+  sleepTimerStopAfterCurrent,
+  sleepTimerIsFading,
   sleepTimerRemainingSeconds,
   sleepTimerDurations,
   onStartSleepTimer,
+  onStartSleepStopAfterCurrent,
   onCancelSleepTimer,
 }: PersistentPlayerProps) {
   const [sleepMenuOpen, setSleepMenuOpen] = React.useState(false);
@@ -124,8 +150,15 @@ export function PersistentPlayer({
           <Artwork track={track} eager />
         </button>
         <div>
-          <strong>{track.title}</strong>
-          <span>{track.artist}</span>
+          <strong title={track.title}>{track.title}</strong>
+          <button
+            type="button"
+            className="player-artist-link"
+            onClick={() => onOpenArtist(track.artist)}
+            title={`Open ${track.artist} Artist Hub`}
+          >
+            {track.artist}
+          </button>
         </div>
         <div className="player-current-actions">
           <button
@@ -188,12 +221,25 @@ export function PersistentPlayer({
             <SkipForward size={19} fill="currentColor" />
           </button>
           <button
-            className={`icon-button ${repeat ? "enabled" : ""}`}
-            onClick={() => onSetRepeat(!repeat)}
-            aria-label="Repeat track"
-            aria-pressed={repeat}
+            className={`icon-button ${repeatMode !== "off" ? "enabled" : ""}`}
+            onClick={onCycleRepeat}
+            aria-label={
+              repeatMode === "one"
+                ? "Repeat one track"
+                : repeatMode === "all"
+                ? "Repeat queue"
+                : "Repeat off"
+            }
+            aria-pressed={repeatMode !== "off"}
+            title={
+              repeatMode === "one"
+                ? "Repeat: Track (click to turn off)"
+                : repeatMode === "all"
+                ? "Repeat: Queue (click for single track)"
+                : "Repeat: Off (click to repeat queue)"
+            }
           >
-            <Repeat2 size={17} />
+            {repeatMode === "one" ? <Repeat1 size={17} /> : <Repeat size={17} />}
           </button>
         </div>
 
@@ -222,37 +268,77 @@ export function PersistentPlayer({
       </div>
 
       <div className="player-extra">
-        <span className="source-label">
-          <i />
-          FULL TRACK
-        </span>
+        {playbackSpeed !== 1 ? (
+          <button type="button" className="source-label is-speed-badge" onClick={onOpenEq} title="Playback speed (click to adjust in Settings & EQ)">
+            {playbackSpeed}x
+          </button>
+        ) : (
+          <span className="source-label">
+            <i />
+            FULL TRACK
+          </span>
+        )}
         <button
-          className={`icon-button ${queueOpen ? "enabled" : ""}`}
+          type="button"
+          className={`icon-button ${lyricsOpen ? "enabled" : ""}`}
+          onClick={onToggleLyrics}
+          aria-label="Open Synced Lyrics Theater"
+          aria-pressed={lyricsOpen}
+          title="Synced Lyrics (L)"
+        >
+          <ScrollText size={17} />
+        </button>
+        <button
+          type="button"
+          className={`icon-button ${eqEnabled ? "enabled" : ""}`}
+          onClick={onOpenEq}
+          aria-label="Open Studio Equalizer"
+          title={eqEnabled ? "Studio Equalizer ON" : "Open Studio Equalizer"}
+        >
+          <SlidersHorizontal size={16} />
+        </button>
+        <button
+          className={`icon-button queue-toggle-btn ${queueOpen ? "enabled" : ""}`}
           onClick={onToggleQueue}
           aria-label="Toggle play queue"
           aria-expanded={queueOpen}
-          title="Play Queue"
+          title={`Play Queue (${queueCount} tracks${autoQueueEnabled ? " · Auto-Queue ON" : ""})`}
         >
           <ListMusic size={19} />
+          {autoQueueEnabled && <span className="queue-auto-dot" aria-hidden="true" />}
         </button>
         <button
-          className={`icon-button ${similarTrackCount ? "enabled" : ""}`}
-          onClick={onPlaySimilar}
-          aria-label="Play similar tracks"
-          title={`Play similar tracks${similarTrackCount ? ` (${similarTrackCount})` : ""}`}
+          className={`icon-button ${isRefillingAutoQueue ? "enabled" : ""}`}
+          onClick={onStartRadio}
+          aria-label="Start Song Radio"
+          title="Start Song Radio from current track"
         >
-          <Sparkles size={17} />
+          {isRefillingAutoQueue ? <LoaderCircle size={17} className="spinner" /> : <Radio size={17} />}
         </button>
         <div className="sleep-timer-control" ref={sleepTimerControlRef}>
           <button
             type="button"
             className={`icon-button ${sleepTimerActive ? "enabled" : ""}`}
             onClick={() => setSleepMenuOpen((open) => !open)}
-            aria-label={sleepTimerActive ? `Sleep timer ${sleepClock} remaining` : "Set sleep timer"}
+            aria-label={
+              sleepTimerStopAfterCurrent
+                ? "Stopping after current track"
+                : sleepTimerActive
+                ? `Sleep timer ${sleepClock} remaining`
+                : "Set sleep timer"
+            }
             aria-expanded={sleepMenuOpen}
             aria-controls="sleep-timer-options"
             aria-haspopup="dialog"
-            title="Sleep timer"
+            title={
+              sleepTimerStopAfterCurrent
+                ? "Stops after this song"
+                : sleepTimerIsFading
+                ? `Fading out (${sleepClock})`
+                : sleepTimerActive
+                ? `Sleep timer: ${sleepClock}`
+                : "Sleep timer"
+            }
           >
             {sleepTimerActive ? <Clock3 size={18} /> : <Moon size={17} />}
           </button>
@@ -264,8 +350,24 @@ export function PersistentPlayer({
               aria-label="Sleep timer options"
             >
               <strong aria-live="polite">
-                {sleepTimerActive ? `Stops in ${sleepClock}` : "Sleep timer"}
+                {sleepTimerStopAfterCurrent
+                  ? "Stops after track"
+                  : sleepTimerIsFading
+                  ? `Fading out · ${sleepClock}`
+                  : sleepTimerActive
+                  ? `Stops in ${sleepClock}`
+                  : "Sleep timer"}
               </strong>
+              <button
+                type="button"
+                className={sleepTimerStopAfterCurrent ? "is-active-timer" : ""}
+                onClick={() => {
+                  onStartSleepStopAfterCurrent();
+                  setSleepMenuOpen(false);
+                }}
+              >
+                End of current track
+              </button>
               {sleepTimerDurations.map((minutes) => (
                 <button
                   key={minutes}

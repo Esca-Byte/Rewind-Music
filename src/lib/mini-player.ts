@@ -26,4 +26,5 @@ export type MiniPlayerCommand =
   | { command: "toggleMute" }
   | { command: "seek"; position: number }
   | { command: "hide" }
+  | { command: "restoreMain" }
   | { command: "toggleFavorite" };

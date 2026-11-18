@@ -2,7 +2,9 @@
 
 import { useEffect, useState, type CSSProperties, type PointerEvent } from "react";
 import {
+  Heart,
   LoaderCircle,
+  Maximize2,
   Pause,
   Play,
   SkipBack,
@@ -36,15 +38,14 @@ function beginWindowDrag(event: PointerEvent<HTMLElement>) {
 export function MiniPlayer() {
   const [snapshot, setSnapshot] = useState<MiniPlayerSnapshot | null>(null);
   const [localTheme, setLocalTheme] = useState<AppTheme>(() => {
-    if (typeof window === "undefined") return "analog";
+    if (typeof window === "undefined") return "aurora";
     try {
-      return (localStorage.getItem("rewind-app-theme") as AppTheme | null) || "analog";
+      return (localStorage.getItem("rewind-app-theme") as AppTheme | null) || "aurora";
     } catch {
-      return "analog";
+      return "aurora";
     }
   });
   useEffect(() => {
-    // Ensure document is completely transparent for smooth rounded OS corners
     document.documentElement.style.background = "transparent";
     document.body.style.background = "transparent";
     document.body.style.overflow = "hidden";
@@ -69,10 +70,14 @@ export function MiniPlayer() {
   }, []);
 
   const activeTheme = snapshot?.theme || localTheme;
-  const isDark = activeTheme === "midnight" || activeTheme === "cyberpunk";
+  const isDark = activeTheme === "aurora" || activeTheme === "midnight" || activeTheme === "cyberpunk";
 
   const track = snapshot?.track;
   const artworkUrl = track ? getTrackCoverUrl(track) : "";
+  const progressPct =
+    snapshot && snapshot.duration > 0
+      ? Math.min(100, Math.max(0, (snapshot.position / snapshot.duration) * 100))
+      : 0;
   const miniPlayerStyle = {
     "--mini-player-artwork": artworkUrl ? `url(${JSON.stringify(artworkUrl)})` : "none",
   } as CSSProperties;
@@ -85,7 +90,35 @@ export function MiniPlayer() {
       data-tauri-drag-region
       onPointerDown={beginWindowDrag}
     >
-      {/* A quiet visual stage keeps the widget recognizable without extra text. */}
+      {/* Top hover HUD: Track info + Heart + Return to main window */}
+      <header className="mini-player-hud" data-tauri-drag-region>
+        <div className="mini-player-hud-copy" data-tauri-drag-region>
+          <strong>{track?.title || "Rewind"}</strong>
+          <span>{track?.artist || "Ready to play"}</span>
+        </div>
+        <div className="mini-player-hud-actions">
+          <button
+            type="button"
+            className={`mini-player-hud-btn ${snapshot?.isSaved ? "saved" : ""}`}
+            onClick={() => sendCommand({ command: "toggleFavorite" })}
+            disabled={!track}
+            aria-label={snapshot?.isSaved ? "Remove favorite" : "Save favorite"}
+            title={snapshot?.isSaved ? "Saved" : "Save to collection"}
+          >
+            <Heart size={13} fill={snapshot?.isSaved ? "currentColor" : "none"} />
+          </button>
+          <button
+            type="button"
+            className="mini-player-hud-btn"
+            onClick={() => sendCommand({ command: "restoreMain" })}
+            aria-label="Return to main window"
+            title="Expand to main window"
+          >
+            <Maximize2 size={13} />
+          </button>
+        </div>
+      </header>
+
       <section className="mini-player-content" data-tauri-drag-region>
         <div
           className="mini-player-artwork-wrap"
@@ -100,10 +133,8 @@ export function MiniPlayer() {
             </div>
           )}
         </div>
-
       </section>
 
-      {/* Minimal transport dock */}
       <footer className="mini-player-controls-row">
         <div className="mini-player-controls-cluster">
           <button
@@ -145,8 +176,12 @@ export function MiniPlayer() {
             <SkipForward size={16} fill="currentColor" />
           </button>
         </div>
-
       </footer>
+
+      {/* Hairline live playback progress indicator */}
+      <div className="mini-player-progress-bar" aria-hidden="true">
+        <i style={{ width: `${progressPct}%` }} />
+      </div>
     </main>
   );
 }
